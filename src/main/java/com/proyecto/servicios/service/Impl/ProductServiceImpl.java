@@ -24,7 +24,16 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
-    public List<CatProductJsonDto> getProductList() {
+    public List<CatProductJsonDto> getProductListFromMongo() {
+        // Lee los productos directamente desde la base de datos local (muy rápido)
+        return mongoRepository.findAll().stream().map(m -> 
+            new CatProductJsonDto(m.getProductId(), m.getName(), m.getStatus())
+        ).collect(Collectors.toList());
+    }
+
+    @Override
+    public List<CatProductJsonDto> fetchProductListFromApi() {
+        // Consulta lenta a la API externa de GestoPago (usada solo por el Cron)
         CatProductXmlDto xmlDto = client.getProductListXml();
         if (xmlDto == null || xmlDto.getProducts() == null) {
             return List.of();
@@ -38,8 +47,13 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public void syncProductsToMongo() {
-        List<CatProductJsonDto> list = getProductList();
+        // 1. Descarga el catálogo nuevo de la API
+        List<CatProductJsonDto> list = fetchProductListFromApi();
+        
+        // 2. Limpia la colección antigua
         mongoRepository.deleteAll();
+        
+        // 3. Guarda la nueva lista en Mongo
         List<CatProductMongo> mongoList = list.stream().map(dto -> {
             CatProductMongo m = new CatProductMongo();
             m.setProductId(dto.getId());

@@ -4,6 +4,11 @@ import com.proyecto.servicios.model.gestopago.CatProductJsonDto;
 import java.util.List;
 
 public interface ProductService {
-    List<CatProductJsonDto> getProductList();
+    // Método para que el controlador lea rápido desde MongoDB
+    List<CatProductJsonDto> getProductListFromMongo();
+    
+    // Método que consulta a la API de GestoPago (usado por el Cron)
+    List<CatProductJsonDto> fetchProductListFromApi();
+    
     void syncProductsToMongo();
 }

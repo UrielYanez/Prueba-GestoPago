@@ -23,6 +23,6 @@ public class ProductController {
     @GetMapping("/getProductList")
     @Operation(summary = "Obtener lista de productos del servicio externo")
     public ResponseEntity<List<CatProductJsonDto>> getProductListEndpoint() {
-        return ResponseEntity.ok(productService.getProductList());
+        return ResponseEntity.ok(productService.getProductListFromMongo());
     }
 }
