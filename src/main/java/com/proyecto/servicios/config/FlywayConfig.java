@@ -31,9 +31,10 @@ public class FlywayConfig {
                 .table(historyTable)
                 .schemas(schema)
                 .baselineOnMigrate(true)
-                .baselineVersion("0")
+                .baselineVersion("4")
+                .cleanOnValidationError(true)
                 .load();
-        flyway.migrate();
+        // flyway.migrate(); // Deshabilitado para que Hibernate genere el esquema desde cero en Supabase
         return flyway;
     }
 }
