@@ -32,5 +32,5 @@ EXPOSE 8081
 # Copiar el JAR generado de la etapa de construcción
 COPY --from=builder /app/build/libs/*.jar app.jar
 
-# Comando para ejecutar la aplicación
-ENTRYPOINT ["java", "-jar", "app.jar"]
+# Comando para ejecutar la aplicación con límites de RAM (Plan Gratuito Render = 512MB)
+ENTRYPOINT ["java", "-Xmx300m", "-XX:MaxMetaspaceSize=128m", "-jar", "app.jar"]
