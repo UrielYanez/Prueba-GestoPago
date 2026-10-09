@@ -28,7 +28,8 @@ import java.util.Map;
 @EnableJpaRepositories(
         basePackages = {
                 "com.proyecto.servicios.repositorys.sf",
-                "com.proyecto.servicios.repositorys.gestopago"
+                "com.proyecto.servicios.repositorys.gestopago",
+                "com.proyecto.servicios.repositorys.postgres"
         },
         transactionManagerRef = "sfTransactionManager",
         entityManagerFactoryRef = "sfEntityManagerFactory"
@@ -67,18 +68,19 @@ public class ConfigDB {
           em.setDataSource(sfDatasource());
           em.setPackagesToScan(
                   "com.proyecto.servicios.entity.sf",
-                  "com.proyecto.servicios.entity.gestopago"
+                  "com.proyecto.servicios.entity.gestopago",
+                  "com.proyecto.servicios.entity.postgres"
           );
           em.setPersistenceUnitName("sfDatasource");
             HibernateJpaVendorAdapter vendorAdapter = new HibernateJpaVendorAdapter();
             em.setJpaVendorAdapter(vendorAdapter);
           Map<String, Object> properties=new HashMap<>();
-          properties.put("hibernate.hbm2ddl.auto", "none");
+          properties.put("hibernate.hbm2ddl.auto", "update");
             properties.put("hibernate.show-sql", false);
             properties.put("hibernate.dialect", "org.hibernate.dialect.PostgreSQLDialect");
             properties.put("jakarta.persistence.query.timeout", 600000);
-
-
+            
+            em.setJpaPropertyMap(properties);
         } catch (Exception e) {
             log.error("Ha ocurrido un error en la conexion a base de datos, a causa de:",e);
             return null;
