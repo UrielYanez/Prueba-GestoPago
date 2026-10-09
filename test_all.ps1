@@ -1,4 +1,4 @@
-$urlBase = "http://localhost:8082"
+$urlBase = "http://localhost:8081"
 
 function Test-Endpoint {
     param(
@@ -81,7 +81,7 @@ Test-Endpoint -Name "Registro Fallido (RFC Duplicado)" -Script {
 
     try {
         Invoke-RestMethod -Uri "$urlBase/clientes" -Method Post -Body $body -ContentType "application/json"
-        throw "Debería haber fallado"
+        throw "Deberï¿½a haber fallado"
     } catch {
         if ($_.Exception.Response.StatusCode.value__ -ne 409) { throw "Status incorrecto" }
     }
@@ -103,7 +103,7 @@ $headers = @{
 
 Test-Endpoint -Name "GET /clientes (Filtro Nombre)" -Script {
     $res = Invoke-RestMethod -Uri "$urlBase/clientes?nombre=Test Final" -Method Get -Headers $headers
-    if ($res.Count -eq 0) { throw "No regresó datos" }
+    if ($res.Count -eq 0) { throw "No regresï¿½ datos" }
     $script:idRegistro = $res[0].id
     $script:numeroCuenta = $res[0].cuentas[0].numeroCuenta
 }
@@ -137,17 +137,17 @@ Test-Endpoint -Name "PATCH /clientes/{id}" -Script {
         ocupacion = "ARQUITECTO"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$urlBase/clientes/$($script:idRegistro)" -Method Patch -Body $body -ContentType "application/json" -Headers $headers
-    if ($res.segundoNombre -ne "Modificado") { throw "No actualizó segundo nombre" }
+    if ($res.segundoNombre -ne "Modificado") { throw "No actualizï¿½ segundo nombre" }
 }
 
 Test-Endpoint -Name "POST /cuentas" -Script {
     $res = Invoke-RestMethod -Uri "$urlBase/cuentas?clienteId=$($script:idRegistro)" -Method Post -Headers $headers
-    if (-not $res.numeroCuenta) { throw "No se creó la cuenta" }
+    if (-not $res.numeroCuenta) { throw "No se creï¿½ la cuenta" }
 }
 
 Test-Endpoint -Name "GET /cuentas/{numeroCuenta}" -Script {
     $res = Invoke-RestMethod -Uri "$urlBase/cuentas/$($script:numeroCuenta)" -Method Get -Headers $headers
-    if ($res.numeroCuenta -ne $script:numeroCuenta) { throw "Número de cuenta no coincide" }
+    if ($res.numeroCuenta -ne $script:numeroCuenta) { throw "Nï¿½mero de cuenta no coincide" }
 }
 
 Test-Endpoint -Name "PATCH /cuentas/{numeroCuenta}" -Script {
@@ -155,7 +155,7 @@ Test-Endpoint -Name "PATCH /cuentas/{numeroCuenta}" -Script {
         saldo = 5000.00
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$urlBase/cuentas/$($script:numeroCuenta)" -Method Patch -Body $body -ContentType "application/json" -Headers $headers
-    if ($res.saldo -ne 5000.00) { throw "No actualizó saldo" }
+    if ($res.saldo -ne 5000.00) { throw "No actualizï¿½ saldo" }
 }
 
 Test-Endpoint -Name "GET /cuentas?estatus=ACTIVA" -Script {
@@ -165,17 +165,17 @@ Test-Endpoint -Name "GET /cuentas?estatus=ACTIVA" -Script {
 
 Test-Endpoint -Name "GET /usuarios/filtro" -Script {
     $res = Invoke-RestMethod -Uri "$urlBase/usuarios/filtro?correo=$email" -Method Get -Headers $headers
-    if ($res.Count -eq 0) { throw "No se encontró usuario" }
+    if ($res.Count -eq 0) { throw "No se encontrï¿½ usuario" }
 }
 
 Test-Endpoint -Name "DELETE /clientes/{id}" -Script {
     $res = Invoke-RestMethod -Uri "$urlBase/clientes/$($script:idRegistro)" -Method Delete -Headers $headers
-    if ($res.mensaje -notmatch "desactivado exitosamente") { throw "No se desactivó" }
+    if ($res.mensaje -notmatch "desactivado exitosamente") { throw "No se desactivï¿½" }
 }
 
-Test-Endpoint -Name "GET /cuentas?estatus=INACTIVA (Verificación de baja en cascada)" -Script {
+Test-Endpoint -Name "GET /cuentas?estatus=INACTIVA (Verificaciï¿½n de baja en cascada)" -Script {
     $res = Invoke-RestMethod -Uri "$urlBase/cuentas/$($script:numeroCuenta)" -Method Get -Headers $headers
-    if ($res.estatus -ne "INACTIVA") { throw "La cuenta no se desactivó" }
+    if ($res.estatus -ne "INACTIVA") { throw "La cuenta no se desactivï¿½" }
 }
 
 Test-Endpoint -Name "POST /clientes/reactivar" -Script {
@@ -187,6 +187,6 @@ Test-Endpoint -Name "POST /clientes/reactivar" -Script {
         fechaNacimiento = "1985-05-10"
     } | ConvertTo-Json
     $res = Invoke-RestMethod -Uri "$urlBase/clientes/reactivar" -Method Post -Body $body -ContentType "application/json"
-    if ($res.mensaje -notmatch "reactivada exitosamente") { throw "No se reactivó" }
+    if ($res.mensaje -notmatch "reactivada exitosamente") { throw "No se reactivï¿½" }
 }
 
