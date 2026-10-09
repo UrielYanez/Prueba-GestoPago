@@ -1,0 +1,1 @@
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS segundo_nombre VARCHAR(50);
