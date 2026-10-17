@@ -1250,6 +1250,54 @@
           }
         }
       ]
+    },
+    {
+      "name": "08. Verificación de Errores Estilizados",
+      "item": [
+        {
+          "name": "23. Manejo de Errores - Ruta Inexistente (404 Estilizado) [404]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 404 Not Found', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Respuesta uniforme estilizada ApiResponse con 404', function () {",
+                  "    pm.expect(json.exito).to.be.false;",
+                  "    pm.expect(json.codigoEstado).to.eql(404);",
+                  "    pm.expect(json.mensaje).to.eql('La ruta o recurso solicitado no fue encontrado.');",
+                  "    pm.expect(json.datos).to.be.null;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ruta-que-no-existe",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ruta-que-no-existe"]
+            }
+          }
+        }
+      ]
     }
   ]
 }
