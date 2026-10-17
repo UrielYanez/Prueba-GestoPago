@@ -1,9 +1,11 @@
 package com.proyecto.servicios.controller;
 
+import com.proyecto.servicios.model.ApiResponse;
 import com.proyecto.servicios.model.gestopago.CatProductJsonDto;
 import com.proyecto.servicios.service.ProductService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -22,7 +24,13 @@ public class ProductController {
 
     @GetMapping("/getProductList")
     @Operation(summary = "Obtener lista de productos del servicio externo")
-    public ResponseEntity<List<CatProductJsonDto>> getProductListEndpoint() {
-        return ResponseEntity.ok(productService.getProductListFromMongo());
+    public ResponseEntity<ApiResponse<List<CatProductJsonDto>>> getProductListEndpoint() {
+        List<CatProductJsonDto> productos = productService.getProductListFromMongo();
+        ApiResponse<List<CatProductJsonDto>> respuesta = ApiResponse.exitoso(
+                "Productos obtenidos exitosamente.",
+                productos,
+                HttpStatus.OK.value()
+        );
+        return ResponseEntity.ok(respuesta);
     }
 }

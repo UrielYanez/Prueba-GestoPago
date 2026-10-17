@@ -1,17 +1,19 @@
 package com.proyecto.servicios.controller;
 
-import com.proyecto.servicios.model.ClienteActualizacionDto;
-import com.proyecto.servicios.model.ClienteRegistroDto;
-import com.proyecto.servicios.model.ClienteResponseDto;
+import com.proyecto.servicios.model.*;
 import com.proyecto.servicios.service.ClienteService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-import java.util.Map;
-
+/**
+ * Controlador REST para la gestión de Clientes.
+ * Cumple estrictamente con las restricciones:
+ * - Cero uso de @PathVariable y @RequestParam.
+ * - Toda entrada de datos y criterios de búsqueda se reciben vía @RequestBody con @Valid.
+ * - Respuestas uniformes utilizando ApiResponse<T>.
+ */
 @RestController
 @RequestMapping("/clientes")
 public class ClienteController {
@@ -27,68 +29,71 @@ public class ClienteController {
      * Registro completo de un cliente (Onboarding). Ruta pública.
      */
     @PostMapping
-    public ResponseEntity<Map<String, String>> registrarCliente(@Valid @RequestBody ClienteRegistroDto dto) {
-        clienteService.registrarCliente(dto);
-        return new ResponseEntity<>(Map.of("mensaje", "Cliente registrado exitosamente y cuenta bancaria creada."), HttpStatus.CREATED);
+    public ResponseEntity<ApiResponse<ClienteResponseDto>> registrarCliente(@Valid @RequestBody ClienteRegistroDto dto) {
+        ClienteResponseDto clienteCreado = clienteService.registrarCliente(dto);
+        ApiResponse<ClienteResponseDto> respuesta = ApiResponse.exitoso(
+                "Cliente registrado exitosamente y cuenta bancaria creada.",
+                clienteCreado,
+                HttpStatus.CREATED.value()
+        );
+        return new ResponseEntity<>(respuesta, HttpStatus.CREATED);
     }
 
     /**
-     * GET /clientes
-     * Lista todos los clientes registrados, con la opción de filtrar por múltiples campos. Requiere JWT.
+     * POST /clientes/buscar
+     * Único endpoint de consulta combinada y dinámica (paginada).
+     * Recibe los criterios y paginación en el Request DTO mediante @RequestBody.
      */
-    @GetMapping
-    public ResponseEntity<List<ClienteResponseDto>> listarTodos(
-            @RequestParam(required = false) String nombre,
-            @RequestParam(required = false) String segundoNombre,
-            @RequestParam(required = false) String apellidoPaterno,
-            @RequestParam(required = false) String apellidoMaterno,
-            @RequestParam(required = false) String curp,
-            @RequestParam(required = false) String rfc,
-            @RequestParam(required = false) String correo,
-            @RequestParam(required = false) String numeroCuenta,
-            @RequestParam(required = false) Boolean activo,
-            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate fechaInicio,
-            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate fechaFin) {
-        return ResponseEntity.ok(clienteService.listarTodos(nombre, segundoNombre, apellidoPaterno, apellidoMaterno, curp, rfc, correo, numeroCuenta, activo, fechaInicio, fechaFin));
+    @PostMapping("/buscar")
+    public ResponseEntity<ApiResponse<PaginatedResponse<ClienteResponseDto>>> buscar(
+            @Valid @RequestBody ClienteBusquedaRequestDto dto) {
+        PaginatedResponse<ClienteResponseDto> resultados = clienteService.buscar(dto);
+        ApiResponse<PaginatedResponse<ClienteResponseDto>> respuesta = ApiResponse.exitoso(
+                "Consulta de clientes realizada con éxito.",
+                resultados,
+                HttpStatus.OK.value()
+        );
+        return ResponseEntity.ok(respuesta);
     }
 
     /**
-     * GET /clientes/{id}
-     * Obtiene un cliente por su ID. Requiere JWT.
+     * PATCH /clientes/actualizar
+     * Actualización parcial vía @RequestBody (el ID viene dentro del DTO).
+     * Impide modificar campos controlados por el servidor (CURP, RFC, número de cuenta, etc.).
      */
-    @GetMapping("/{id}")
-    public ResponseEntity<ClienteResponseDto> obtenerPorId(@PathVariable Long id) {
-        return ResponseEntity.ok(clienteService.obtenerPorId(id));
-    }
-
-    /**
-     * PATCH /clientes/{id}
-     * Actualización parcial. No permite modificar CURP, RFC ni numeroCuenta. Requiere JWT.
-     */
-    @PatchMapping("/{id}")
-    public ResponseEntity<ClienteResponseDto> actualizar(
-            @PathVariable Long id,
+    @PatchMapping("/actualizar")
+    public ResponseEntity<ApiResponse<ClienteResponseDto>> actualizar(
             @Valid @RequestBody ClienteActualizacionDto dto) {
-        return ResponseEntity.ok(clienteService.actualizar(id, dto));
+        ClienteResponseDto clienteActualizado = clienteService.actualizar(dto);
+        ApiResponse<ClienteResponseDto> respuesta = ApiResponse.exitoso(
+                "Cliente actualizado exitosamente.",
+                clienteActualizado,
+                HttpStatus.OK.value()
+        );
+        return ResponseEntity.ok(respuesta);
     }
 
     /**
-     * DELETE /clientes/{id}
-     * Baja lógica: cambia activo=false en cliente, usuario y sus cuentas. Requiere JWT.
+     * POST /clientes/desactivar
+     * Baja lógica vía @RequestBody (el ID viene dentro del DTO).
      */
-    @DeleteMapping("/{id}")
-    public ResponseEntity<Map<String, String>> desactivar(@PathVariable Long id) {
-        clienteService.desactivar(id);
-        return ResponseEntity.ok(Map.of("mensaje", "Cliente desactivado exitosamente."));
+    @PostMapping("/desactivar")
+    public ResponseEntity<ApiResponse<Void>> desactivar(
+            @Valid @RequestBody ClienteBajaRequestDto dto) {
+        clienteService.desactivar(dto);
+        ApiResponse<Void> respuesta = ApiResponse.exitoso("Cliente desactivado exitosamente.");
+        return ResponseEntity.ok(respuesta);
     }
 
     /**
      * POST /clientes/reactivar
-     * Reactiva una cuenta inactiva. No requiere Token, pero requiere credenciales y datos de seguridad.
+     * Reactivación de cuenta vía @RequestBody.
      */
     @PostMapping("/reactivar")
-    public ResponseEntity<Map<String, String>> reactivar(@Valid @RequestBody com.proyecto.servicios.model.ReactivacionDto dto) {
+    public ResponseEntity<ApiResponse<Void>> reactivar(
+            @Valid @RequestBody ReactivacionDto dto) {
         clienteService.reactivar(dto);
-        return ResponseEntity.ok(Map.of("mensaje", "Cuenta reactivada exitosamente. Ya puedes iniciar sesión nuevamente."));
+        ApiResponse<Void> respuesta = ApiResponse.exitoso("Cuenta reactivada exitosamente. Ya puedes iniciar sesión nuevamente.");
+        return ResponseEntity.ok(respuesta);
     }
 }

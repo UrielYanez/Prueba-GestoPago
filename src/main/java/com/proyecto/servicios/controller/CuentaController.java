@@ -1,14 +1,19 @@
 package com.proyecto.servicios.controller;
 
-import com.proyecto.servicios.entity.postgres.EstatusCuenta;
-import com.proyecto.servicios.model.CuentaActualizacionDto;
-import com.proyecto.servicios.model.CuentaResponseDto;
+import com.proyecto.servicios.model.*;
 import com.proyecto.servicios.service.CuentaService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
+/**
+ * Controlador REST para la gestión de cuentas bancarias.
+ * Cumple con las restricciones:
+ * - Cero uso de @PathVariable y @RequestParam.
+ * - Toda entrada de datos mediante @RequestBody y @Valid.
+ * - Respuestas uniformes mediante ApiResponse<T>.
+ */
 @RestController
 @RequestMapping("/cuentas")
 public class CuentaController {
@@ -20,42 +25,50 @@ public class CuentaController {
     }
 
     /**
-     * GET /cuentas/{numeroCuenta}
-     * Consulta una cuenta por su número. Requiere JWT.
+     * POST /cuentas/buscar
+     * Consulta dinámica y paginada por criterios (número de cuenta, clienteId, estatus).
      */
-    @GetMapping("/{numeroCuenta}")
-    public ResponseEntity<CuentaResponseDto> obtenerPorNumeroCuenta(@PathVariable String numeroCuenta) {
-        return ResponseEntity.ok(cuentaService.obtenerPorNumeroCuenta(numeroCuenta));
-    }
-
-    /**
-     * GET /cuentas
-     * Búsqueda flexible por cliente y/o estatus. Requiere JWT.
-     */
-    @GetMapping
-    public ResponseEntity<List<CuentaResponseDto>> listarTodas(
-            @RequestParam(required = false) Long clienteId,
-            @RequestParam(required = false) EstatusCuenta estatus) {
-        return ResponseEntity.ok(cuentaService.listarTodas(clienteId, estatus));
+    @PostMapping("/buscar")
+    public ResponseEntity<ApiResponse<PaginatedResponse<CuentaResponseDto>>> buscar(
+            @Valid @RequestBody CuentaBusquedaRequestDto dto) {
+        PaginatedResponse<CuentaResponseDto> resultados = cuentaService.buscar(dto);
+        ApiResponse<PaginatedResponse<CuentaResponseDto>> respuesta = ApiResponse.exitoso(
+                "Consulta de cuentas realizada con éxito.",
+                resultados,
+                HttpStatus.OK.value()
+        );
+        return ResponseEntity.ok(respuesta);
     }
 
     /**
      * POST /cuentas
-     * Crear una cuenta asociada a un cliente.
+     * Crear una cuenta asociada a un cliente vía @RequestBody.
      */
     @PostMapping
-    public ResponseEntity<CuentaResponseDto> crearCuenta(@RequestParam Long clienteId) {
-        return new ResponseEntity<>(cuentaService.crearCuenta(clienteId), org.springframework.http.HttpStatus.CREATED);
+    public ResponseEntity<ApiResponse<CuentaResponseDto>> crearCuenta(
+            @Valid @RequestBody CuentaCreacionRequestDto dto) {
+        CuentaResponseDto cuentaCreada = cuentaService.crearCuenta(dto);
+        ApiResponse<CuentaResponseDto> respuesta = ApiResponse.exitoso(
+                "Cuenta bancaria creada exitosamente.",
+                cuentaCreada,
+                HttpStatus.CREATED.value()
+        );
+        return new ResponseEntity<>(respuesta, HttpStatus.CREATED);
     }
 
     /**
-     * PATCH /cuentas/{numeroCuenta}
-     * Actualiza el saldo o estatus de una cuenta. No permite cambiar el numeroCuenta. Requiere JWT.
+     * PATCH /cuentas/actualizar
+     * Actualiza el saldo o estatus de una cuenta vía @RequestBody.
      */
-    @PatchMapping("/{numeroCuenta}")
-    public ResponseEntity<CuentaResponseDto> actualizar(
-            @PathVariable String numeroCuenta,
-            @RequestBody CuentaActualizacionDto dto) {
-        return ResponseEntity.ok(cuentaService.actualizar(numeroCuenta, dto));
+    @PatchMapping("/actualizar")
+    public ResponseEntity<ApiResponse<CuentaResponseDto>> actualizar(
+            @Valid @RequestBody CuentaActualizacionDto dto) {
+        CuentaResponseDto cuentaActualizada = cuentaService.actualizar(dto);
+        ApiResponse<CuentaResponseDto> respuesta = ApiResponse.exitoso(
+                "Cuenta bancaria actualizada exitosamente.",
+                cuentaActualizada,
+                HttpStatus.OK.value()
+        );
+        return ResponseEntity.ok(respuesta);
     }
 }

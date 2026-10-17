@@ -10,6 +10,10 @@ import com.proyecto.servicios.repositorys.postgres.ClienteRepository;
 import com.proyecto.servicios.repositorys.postgres.CuentaRepository;
 import com.proyecto.servicios.repositorys.postgres.UsuarioRepository;
 import com.proyecto.servicios.service.ClienteService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.Period;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -29,7 +34,7 @@ public class ClienteServiceImpl implements ClienteService {
     private final CopomexClient copomexClient;
     private final PasswordEncoder passwordEncoder;
 
-    @org.springframework.beans.factory.annotation.Value("${copomex.api.token}")
+    @org.springframework.beans.factory.annotation.Value("${copomex.api.token:pruebas}")
     private String copomexToken;
 
     public ClienteServiceImpl(ClienteRepository clienteRepository, CuentaRepository cuentaRepository,
@@ -47,7 +52,7 @@ public class ClienteServiceImpl implements ClienteService {
     // ─────────────────────────────────────────────────────────────────────────
     @Override
     @Transactional
-    public void registrarCliente(ClienteRegistroDto dto) {
+    public ClienteResponseDto registrarCliente(ClienteRegistroDto dto) {
         // 1. Validar Edad (Mayor de 18 años)
         int edad = Period.between(dto.getFechaNacimiento(), LocalDate.now()).getYears();
         if (edad < 18) {
@@ -65,7 +70,7 @@ public class ClienteServiceImpl implements ClienteService {
             throw new DuplicatedResourceException("Ya existe un usuario registrado con el correo: " + dto.getCorreoElectronico());
         }
 
-        // 3. Autocompletar con Copomex si el cliente no mandó la información
+        // 3. Autocompletar con Copomex si no se enviaron datos completos de dirección
         if (dto.getColonia() == null || dto.getColonia().isBlank() ||
             dto.getMunicipio() == null || dto.getMunicipio().isBlank() ||
             dto.getEstado() == null || dto.getEstado().isBlank()) {
@@ -79,8 +84,8 @@ public class ClienteServiceImpl implements ClienteService {
                         if (dto.getEstado() == null || dto.getEstado().isBlank()) dto.setEstado(firstMatch.getResponse().getEstado());
                     }
                 }
-            } catch (Exception e) {
-                // Si la API falla, no impedimos el registro
+            } catch (Exception ignored) {
+                // Si la API externa no responde, no interrumpimos el registro
             }
         }
 
@@ -127,7 +132,6 @@ public class ClienteServiceImpl implements ClienteService {
                 .build();
 
         usuario.setCliente(cliente);
-
         cliente = clienteRepository.save(cliente);
 
         // 7. Crear Cuenta Bancaria con número único de 10 dígitos
@@ -139,91 +143,100 @@ public class ClienteServiceImpl implements ClienteService {
                 .cliente(cliente)
                 .build();
         cuentaRepository.save(cuenta);
-    }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // CONSULTAS
-    // ─────────────────────────────────────────────────────────────────────────
-    @Override
-    @Transactional(readOnly = true)
-    public List<ClienteResponseDto> listarTodos(String nombre, String segundoNombre, String apellidoPaterno, String apellidoMaterno, 
-                                                String curp, String rfc, String correo, String numeroCuenta, Boolean activo, 
-                                                java.time.LocalDate fechaInicio, java.time.LocalDate fechaFin) {
-        org.springframework.data.jpa.domain.Specification<Cliente> spec = (root, query, criteriaBuilder) -> {
-            java.util.List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
-            
-            if (nombre != null && !nombre.isBlank()) {
-                predicates.add(criteriaBuilder.like(criteriaBuilder.lower(root.get("nombre")), "%" + nombre.toLowerCase() + "%"));
-            }
-            if (segundoNombre != null && !segundoNombre.isBlank()) {
-                predicates.add(criteriaBuilder.like(criteriaBuilder.lower(root.get("segundoNombre")), "%" + segundoNombre.toLowerCase() + "%"));
-            }
-            if (apellidoPaterno != null && !apellidoPaterno.isBlank()) {
-                predicates.add(criteriaBuilder.like(criteriaBuilder.lower(root.get("apellidoPaterno")), "%" + apellidoPaterno.toLowerCase() + "%"));
-            }
-            if (apellidoMaterno != null && !apellidoMaterno.isBlank()) {
-                predicates.add(criteriaBuilder.like(criteriaBuilder.lower(root.get("apellidoMaterno")), "%" + apellidoMaterno.toLowerCase() + "%"));
-            }
-            if (curp != null && !curp.isBlank()) {
-                predicates.add(criteriaBuilder.like(criteriaBuilder.upper(root.get("curp")), curp.toUpperCase() + "%"));
-            }
-            if (rfc != null && !rfc.isBlank()) {
-                predicates.add(criteriaBuilder.like(criteriaBuilder.upper(root.get("rfc")), rfc.toUpperCase() + "%"));
-            }
-            if (correo != null && !correo.isBlank()) {
-                predicates.add(criteriaBuilder.like(criteriaBuilder.lower(root.get("correoElectronico")), "%" + correo.toLowerCase() + "%"));
-            }
-            if (activo != null) {
-                predicates.add(criteriaBuilder.equal(root.get("activo"), activo));
-            }
-            if (fechaInicio != null) {
-                predicates.add(criteriaBuilder.greaterThanOrEqualTo(root.get("fechaCreacion"), fechaInicio.atStartOfDay()));
-            }
-            if (fechaFin != null) {
-                predicates.add(criteriaBuilder.lessThanOrEqualTo(root.get("fechaCreacion"), fechaFin.atTime(23, 59, 59)));
-            }
-            
-            if (numeroCuenta != null && !numeroCuenta.isBlank()) {
-                jakarta.persistence.criteria.Join<Cliente, Cuenta> cuentaJoin = root.join("cuentas");
-                predicates.add(criteriaBuilder.equal(cuentaJoin.get("numeroCuenta"), numeroCuenta));
-            }
-            
-            return criteriaBuilder.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
-        };
-
-        List<ClienteResponseDto> resultados = clienteRepository.findAll(spec).stream()
-                .map(this::mapearAResponse)
-                .collect(Collectors.toList());
-                
-        if (resultados.isEmpty() && (nombre != null || segundoNombre != null || apellidoPaterno != null || apellidoMaterno != null || curp != null || rfc != null || correo != null || numeroCuenta != null || activo != null || fechaInicio != null || fechaFin != null)) {
-            throw new ResourceNotFoundException("No se encontraron coincidencias para tu búsqueda.");
-        }
-        
-        return resultados;
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public ClienteResponseDto obtenerPorId(Long id) {
-        Cliente cliente = clienteRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("No se encontró un cliente con ID: " + id));
         return mapearAResponse(cliente);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // ACTUALIZACIÓN PARCIAL
+    // ÚNICO ENDPOINT DE BÚSQUEDA Y CONSULTA DINÁMICA (Paginada vía @RequestBody)
+    // ─────────────────────────────────────────────────────────────────────────
+    @Override
+    @Transactional(readOnly = true)
+    public PaginatedResponse<ClienteResponseDto> buscar(ClienteBusquedaRequestDto dto) {
+        Specification<Cliente> spec = (root, query, cb) -> {
+            List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
+
+            if (dto.getId() != null) {
+                predicates.add(cb.equal(root.get("id"), dto.getId()));
+            }
+            if (dto.getNombre() != null && !dto.getNombre().isBlank()) {
+                predicates.add(cb.like(cb.lower(root.get("nombre")), "%" + dto.getNombre().toLowerCase() + "%"));
+            }
+            if (dto.getSegundoNombre() != null && !dto.getSegundoNombre().isBlank()) {
+                predicates.add(cb.like(cb.lower(root.get("segundoNombre")), "%" + dto.getSegundoNombre().toLowerCase() + "%"));
+            }
+            if (dto.getApellidoPaterno() != null && !dto.getApellidoPaterno().isBlank()) {
+                predicates.add(cb.like(cb.lower(root.get("apellidoPaterno")), "%" + dto.getApellidoPaterno().toLowerCase() + "%"));
+            }
+            if (dto.getApellidoMaterno() != null && !dto.getApellidoMaterno().isBlank()) {
+                predicates.add(cb.like(cb.lower(root.get("apellidoMaterno")), "%" + dto.getApellidoMaterno().toLowerCase() + "%"));
+            }
+            if (dto.getCurp() != null && !dto.getCurp().isBlank()) {
+                predicates.add(cb.like(cb.upper(root.get("curp")), dto.getCurp().toUpperCase() + "%"));
+            }
+            if (dto.getRfc() != null && !dto.getRfc().isBlank()) {
+                predicates.add(cb.like(cb.upper(root.get("rfc")), dto.getRfc().toUpperCase() + "%"));
+            }
+            if (dto.getCorreo() != null && !dto.getCorreo().isBlank()) {
+                predicates.add(cb.like(cb.lower(root.get("correoElectronico")), "%" + dto.getCorreo().toLowerCase() + "%"));
+            }
+            if (dto.getActivo() != null) {
+                predicates.add(cb.equal(root.get("activo"), dto.getActivo()));
+            }
+            if (dto.getFechaInicio() != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("fechaCreacion"), dto.getFechaInicio().atStartOfDay()));
+            }
+            if (dto.getFechaFin() != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("fechaCreacion"), dto.getFechaFin().atTime(23, 59, 59)));
+            }
+            if (dto.getNumeroCuenta() != null && !dto.getNumeroCuenta().isBlank()) {
+                jakarta.persistence.criteria.Join<Cliente, Cuenta> cuentaJoin = root.join("cuentas");
+                predicates.add(cb.equal(cuentaJoin.get("numeroCuenta"), dto.getNumeroCuenta()));
+            }
+
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+
+        // Paginación flexible (valores por defecto 0 y 10)
+        int page = (dto.getPage() != null && dto.getPage() >= 0) ? dto.getPage() : 0;
+        int size = (dto.getSize() != null && dto.getSize() > 0) ? dto.getSize() : 10;
+        Pageable pageable = PageRequest.of(page, size);
+
+        Page<Cliente> paginaResultados = clienteRepository.findAll(spec, pageable);
+
+        if (paginaResultados.isEmpty()) {
+            throw new ResourceNotFoundException("No se encontraron clientes con los criterios de búsqueda proporcionados.");
+        }
+
+        List<ClienteResponseDto> contenido = paginaResultados.getContent().stream()
+                .map(this::mapearAResponse)
+                .collect(Collectors.toList());
+
+        return PaginatedResponse.<ClienteResponseDto>builder()
+                .contenido(contenido)
+                .paginaActual(paginaResultados.getNumber())
+                .tamanoPagina(paginaResultados.getSize())
+                .totalElementos(paginaResultados.getTotalElements())
+                .totalPaginas(paginaResultados.getTotalPages())
+                .esPrimera(paginaResultados.isFirst())
+                .esUltima(paginaResultados.isLast())
+                .build();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ACTUALIZACIÓN PARCIAL (Vía @RequestBody)
     // ─────────────────────────────────────────────────────────────────────────
     @Override
     @Transactional
-    public ClienteResponseDto actualizar(Long id, ClienteActualizacionDto dto) {
-        Cliente cliente = clienteRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("No se encontró un cliente con ID: " + id));
+    public ClienteResponseDto actualizar(ClienteActualizacionDto dto) {
+        Cliente cliente = clienteRepository.findById(dto.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("No se encontró un cliente con ID: " + dto.getId()));
 
         if (Boolean.FALSE.equals(cliente.getActivo())) {
             throw new BusinessRuleException("No se puede modificar un cliente inactivo.");
         }
 
-        // Actualizar solo los campos que lleguen (no nulos)
+        // Modificar solo campos permitidos que no sean nulos
         if (dto.getNombre() != null)            cliente.setNombre(dto.getNombre());
         if (dto.getSegundoNombre() != null)     cliente.setSegundoNombre(dto.getSegundoNombre());
         if (dto.getApellidoPaterno() != null)   cliente.setApellidoPaterno(dto.getApellidoPaterno());
@@ -251,24 +264,22 @@ public class ClienteServiceImpl implements ClienteService {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // BAJA LÓGICA
+    // BAJA LÓGICA (Vía @RequestBody)
     // ─────────────────────────────────────────────────────────────────────────
     @Override
     @Transactional
-    public void desactivar(Long id) {
-        Cliente cliente = clienteRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("No se encontró un cliente con ID: " + id));
+    public void desactivar(ClienteBajaRequestDto dto) {
+        Cliente cliente = clienteRepository.findById(dto.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("No se encontró un cliente con ID: " + dto.getId()));
 
         if (Boolean.FALSE.equals(cliente.getActivo())) {
             throw new BusinessRuleException("El cliente ya se encuentra inactivo.");
         }
 
-        // Baja lógica en cliente y usuario
         cliente.setActivo(false);
         if (cliente.getUsuario() != null) {
             cliente.getUsuario().setActivo(false);
         }
-        // Desactivar todas sus cuentas
         if (cliente.getCuentas() != null) {
             cliente.getCuentas().forEach(c -> c.setEstatus(EstatusCuenta.INACTIVA));
         }
@@ -286,25 +297,20 @@ public class ClienteServiceImpl implements ClienteService {
             throw new BusinessRuleException("El cliente ya se encuentra activo.");
         }
 
-        // Validar contraseña
         if (cliente.getUsuario() == null || !passwordEncoder.matches(dto.getPassword(), cliente.getUsuario().getPassword())) {
             throw new com.proyecto.servicios.exception.InvalidCredentialsException("La contraseña es incorrecta.");
         }
 
-        // Validar campos extra como medida de seguridad
         if (!cliente.getCurp().equalsIgnoreCase(dto.getCurp()) ||
             !cliente.getRfc().equalsIgnoreCase(dto.getRfc()) ||
             !cliente.getFechaNacimiento().equals(dto.getFechaNacimiento())) {
             throw new BusinessRuleException("Los datos de seguridad (CURP, RFC o Fecha de Nacimiento) no coinciden.");
         }
 
-        // Reactivar cliente y usuario
         cliente.setActivo(true);
         if (cliente.getUsuario() != null) {
             cliente.getUsuario().setActivo(true);
         }
-
-        // Opcional: ¿Reactivar sus cuentas? Por ahora las dejamos así (o podríamos activarlas)
         if (cliente.getCuentas() != null) {
             cliente.getCuentas().forEach(c -> c.setEstatus(EstatusCuenta.ACTIVA));
         }
@@ -336,7 +342,6 @@ public class ClienteServiceImpl implements ClienteService {
                 .ingresoMensual(c.getIngresoMensual())
                 .activo(c.getActivo());
 
-        // Datos del domicilio
         if (c.getDomicilio() != null) {
             Domicilio d = c.getDomicilio();
             builder.calle(d.getCalle())
@@ -348,7 +353,6 @@ public class ClienteServiceImpl implements ClienteService {
                    .codigoPostal(d.getCodigoPostal());
         }
 
-        // Cuentas asociadas
         if (c.getCuentas() != null) {
             builder.cuentas(c.getCuentas().stream().map(cu ->
                     CuentaResponseDto.builder()

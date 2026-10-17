@@ -1,6 +1,7 @@
 package com.proyecto.servicios.model;
 
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import lombok.Getter;
 import lombok.Setter;
@@ -8,12 +9,15 @@ import lombok.Setter;
 import java.math.BigDecimal;
 
 /**
- * DTO para actualización parcial de cliente (PATCH).
- * No incluye CURP, RFC ni numeroCuenta, ya que esos campos son inmutables.
+ * DTO para actualización parcial de cliente vía @RequestBody (PATCH/PUT).
+ * No incluye CURP, RFC ni numeroCuenta, ya que esos campos son inmutables y controlados por el servidor.
  */
 @Getter
 @Setter
 public class ClienteActualizacionDto {
+
+    @NotNull(message = "El ID del cliente es obligatorio para la actualización")
+    private Long id;
 
     private String nombre;
     private String segundoNombre;

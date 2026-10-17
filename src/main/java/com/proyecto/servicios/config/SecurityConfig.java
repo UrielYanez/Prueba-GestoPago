@@ -1,7 +1,13 @@
 package com.proyecto.servicios.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.proyecto.servicios.model.ApiResponse;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -16,9 +22,11 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final ObjectMapper objectMapper;
 
     public SecurityConfig(JwtUtil jwtUtil, com.proyecto.servicios.repositorys.postgres.UsuarioRepository usuarioRepository) {
         this.jwtAuthFilter = new JwtAuthFilter(jwtUtil, usuarioRepository);
+        this.objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     }
 
     @Bean
@@ -32,16 +40,35 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                // Registro (solo POST) y Login son públicos
-                .requestMatchers(org.springframework.http.HttpMethod.POST, "/clientes").permitAll()
-                .requestMatchers(org.springframework.http.HttpMethod.POST, "/clientes/reactivar").permitAll()
+                // Rutas públicas
+                .requestMatchers(HttpMethod.POST, "/clientes").permitAll()
+                .requestMatchers(HttpMethod.POST, "/clientes/reactivar").permitAll()
                 .requestMatchers("/auth/login").permitAll()
-                // Permitir la ruta de errores para que no retorne 403 cuando hay excepciones
                 .requestMatchers("/error").permitAll()
-                // Swagger es público
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
                 // Todo lo demás requiere autenticación
                 .anyRequest().authenticated()
+            )
+            // Manejo de errores 401 y 403 con ApiResponse uniforme
+            .exceptionHandling(exceptions -> exceptions
+                .authenticationEntryPoint((request, response, authException) -> {
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    ApiResponse<Void> apiResponse = ApiResponse.error(
+                        "No autorizado: Se requiere un token JWT válido para acceder a este recurso.",
+                        HttpStatus.UNAUTHORIZED.value()
+                    );
+                    objectMapper.writeValue(response.getOutputStream(), apiResponse);
+                })
+                .accessDeniedHandler((request, response, accessDeniedException) -> {
+                    response.setContentType("application/json;charset=UTF-8");
+                    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                    ApiResponse<Void> apiResponse = ApiResponse.error(
+                        "Acceso denegado: No tienes los permisos necesarios para realizar esta acción.",
+                        HttpStatus.FORBIDDEN.value()
+                    );
+                    objectMapper.writeValue(response.getOutputStream(), apiResponse);
+                })
             )
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
