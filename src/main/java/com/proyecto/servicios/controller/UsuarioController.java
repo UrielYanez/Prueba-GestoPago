@@ -1,5 +1,8 @@
 package com.proyecto.servicios.controller;
 
+import com.proyecto.servicios.model.ApiResponse;
+import com.proyecto.servicios.model.PaginatedResponse;
+import com.proyecto.servicios.model.UsuarioBusquedaRequestDto;
 import com.proyecto.servicios.model.UsuarioRegistroDto;
 import com.proyecto.servicios.model.UsuarioResponseDto;
 import com.proyecto.servicios.service.UsuarioService;
@@ -8,8 +11,13 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-
+/**
+ * Controlador REST para la administración de usuarios.
+ * Cumple con las restricciones:
+ * - Cero uso de @PathVariable y @RequestParam.
+ * - Búsqueda dinámica vía @RequestBody con Request DTO.
+ * - Respuestas uniformes mediante ApiResponse<T>.
+ */
 @RestController
 @RequestMapping("/usuarios")
 public class UsuarioController {
@@ -21,22 +29,34 @@ public class UsuarioController {
     }
 
     /**
-     * GET /usuarios/filtro
-     * Buscar usuarios por correo o estatus. Requiere JWT.
+     * POST /usuarios/buscar
+     * Único endpoint de búsqueda dinámica y paginada para usuarios.
      */
-    @GetMapping("/filtro")
-    public ResponseEntity<List<UsuarioResponseDto>> filtrarUsuarios(
-            @RequestParam(required = false) String correo,
-            @RequestParam(required = false) Boolean activo) {
-        return ResponseEntity.ok(usuarioService.filtrarUsuarios(correo, activo));
+    @PostMapping("/buscar")
+    public ResponseEntity<ApiResponse<PaginatedResponse<UsuarioResponseDto>>> buscar(
+            @Valid @RequestBody UsuarioBusquedaRequestDto dto) {
+        PaginatedResponse<UsuarioResponseDto> resultados = usuarioService.buscar(dto);
+        ApiResponse<PaginatedResponse<UsuarioResponseDto>> respuesta = ApiResponse.exitoso(
+                "Consulta de usuarios realizada con éxito.",
+                resultados,
+                HttpStatus.OK.value()
+        );
+        return ResponseEntity.ok(respuesta);
     }
 
     /**
-     * PUT /usuarios/agregar
-     * Agrega un usuario (asociado a un cliente).
+     * POST /usuarios
+     * Agrega un usuario asociado a un cliente.
      */
-    @PutMapping("/agregar")
-    public ResponseEntity<UsuarioResponseDto> agregarUsuario(@Valid @RequestBody UsuarioRegistroDto dto) {
-        return new ResponseEntity<>(usuarioService.agregarUsuario(dto), HttpStatus.CREATED);
+    @PostMapping
+    public ResponseEntity<ApiResponse<UsuarioResponseDto>> agregarUsuario(
+            @Valid @RequestBody UsuarioRegistroDto dto) {
+        UsuarioResponseDto usuarioCreado = usuarioService.agregarUsuario(dto);
+        ApiResponse<UsuarioResponseDto> respuesta = ApiResponse.exitoso(
+                "Usuario creado exitosamente.",
+                usuarioCreado,
+                HttpStatus.CREATED.value()
+        );
+        return new ResponseEntity<>(respuesta, HttpStatus.CREATED);
     }
 }

@@ -12,13 +12,4 @@ public interface ClienteRepository extends JpaRepository<Cliente, Long>, JpaSpec
     Optional<Cliente> findByCurp(String curp);
     Optional<Cliente> findByRfc(String rfc);
     Optional<Cliente> findByCorreoElectronico(String correoElectronico);
-    
-    // Búsquedas flexibles por prefijo
-    Iterable<Cliente> findByCurpStartingWith(String curp);
-    Iterable<Cliente> findByRfcStartingWith(String rfc);
-    
-    // Búsquedas flexibles por nombre y apellidos
-    Iterable<Cliente> findByNombreContainingIgnoreCase(String nombre);
-    Iterable<Cliente> findByApellidoPaternoContainingIgnoreCase(String apellidoPaterno);
-    Iterable<Cliente> findByApellidoMaternoContainingIgnoreCase(String apellidoMaterno);
 }

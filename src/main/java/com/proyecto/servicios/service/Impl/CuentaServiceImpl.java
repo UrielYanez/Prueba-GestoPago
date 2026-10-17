@@ -4,13 +4,17 @@ import com.proyecto.servicios.entity.postgres.Cuenta;
 import com.proyecto.servicios.entity.postgres.EstatusCuenta;
 import com.proyecto.servicios.exception.BusinessRuleException;
 import com.proyecto.servicios.exception.ResourceNotFoundException;
-import com.proyecto.servicios.model.CuentaActualizacionDto;
-import com.proyecto.servicios.model.CuentaResponseDto;
+import com.proyecto.servicios.model.*;
 import com.proyecto.servicios.repositorys.postgres.CuentaRepository;
 import com.proyecto.servicios.service.CuentaService;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -28,40 +32,53 @@ public class CuentaServiceImpl implements CuentaService {
 
     @Override
     @Transactional(readOnly = true)
-    public CuentaResponseDto obtenerPorNumeroCuenta(String numeroCuenta) {
-        Cuenta cuenta = cuentaRepository.findByNumeroCuenta(numeroCuenta)
-                .orElseThrow(() -> new ResourceNotFoundException("No se encontró una cuenta con número: " + numeroCuenta));
-        return mapearAResponse(cuenta);
-    }
+    public PaginatedResponse<CuentaResponseDto> buscar(CuentaBusquedaRequestDto dto) {
+        Specification<Cuenta> spec = (root, query, cb) -> {
+            List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
 
-    @Override
-    @Transactional(readOnly = true)
-    public List<CuentaResponseDto> listarTodas(Long clienteId, EstatusCuenta estatus) {
-        org.springframework.data.jpa.domain.Specification<Cuenta> spec = (root, query, criteriaBuilder) -> {
-            List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
-            if (clienteId != null) {
-                predicates.add(criteriaBuilder.equal(root.get("cliente").get("id"), clienteId));
+            if (dto.getNumeroCuenta() != null && !dto.getNumeroCuenta().isBlank()) {
+                predicates.add(cb.equal(root.get("numeroCuenta"), dto.getNumeroCuenta()));
             }
-            if (estatus != null) {
-                predicates.add(criteriaBuilder.equal(root.get("estatus"), estatus));
+            if (dto.getClienteId() != null) {
+                predicates.add(cb.equal(root.get("cliente").get("id"), dto.getClienteId()));
             }
-            return criteriaBuilder.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+            if (dto.getEstatus() != null) {
+                predicates.add(cb.equal(root.get("estatus"), dto.getEstatus()));
+            }
+
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         };
 
-        List<Cuenta> resultados = cuentaRepository.findAll(spec);
+        int page = (dto.getPage() != null && dto.getPage() >= 0) ? dto.getPage() : 0;
+        int size = (dto.getSize() != null && dto.getSize() > 0) ? dto.getSize() : 10;
+        Pageable pageable = PageRequest.of(page, size);
 
-        if (resultados.isEmpty()) {
-            throw new ResourceNotFoundException("No se encontraron cuentas para tu búsqueda.");
+        Page<Cuenta> pagina = cuentaRepository.findAll(spec, pageable);
+
+        if (pagina.isEmpty()) {
+            throw new ResourceNotFoundException("No se encontraron cuentas con los criterios de búsqueda proporcionados.");
         }
 
-        return resultados.stream().map(this::mapearAResponse).collect(Collectors.toList());
+        List<CuentaResponseDto> contenido = pagina.getContent().stream()
+                .map(this::mapearAResponse)
+                .collect(Collectors.toList());
+
+        return PaginatedResponse.<CuentaResponseDto>builder()
+                .contenido(contenido)
+                .paginaActual(pagina.getNumber())
+                .tamanoPagina(pagina.getSize())
+                .totalElementos(pagina.getTotalElements())
+                .totalPaginas(pagina.getTotalPages())
+                .esPrimera(pagina.isFirst())
+                .esUltima(pagina.isLast())
+                .build();
     }
 
     @Override
     @Transactional
-    public CuentaResponseDto crearCuenta(Long clienteId) {
-        com.proyecto.servicios.entity.postgres.Cliente cliente = clienteRepository.findById(clienteId)
-                .orElseThrow(() -> new ResourceNotFoundException("No se encontró un cliente con ID: " + clienteId));
+    public CuentaResponseDto crearCuenta(CuentaCreacionRequestDto dto) {
+        com.proyecto.servicios.entity.postgres.Cliente cliente = clienteRepository.findById(dto.getClienteId())
+                .orElseThrow(() -> new ResourceNotFoundException("No se encontró un cliente con ID: " + dto.getClienteId()));
 
         if (Boolean.FALSE.equals(cliente.getActivo())) {
             throw new BusinessRuleException("No se pueden crear cuentas para clientes inactivos.");
@@ -74,7 +91,7 @@ public class CuentaServiceImpl implements CuentaService {
 
         Cuenta cuenta = Cuenta.builder()
                 .numeroCuenta(numeroCuentaUnico)
-                .saldo(java.math.BigDecimal.ZERO)
+                .saldo(BigDecimal.ZERO)
                 .estatus(EstatusCuenta.ACTIVA)
                 .cliente(cliente)
                 .build();
@@ -84,11 +101,10 @@ public class CuentaServiceImpl implements CuentaService {
 
     @Override
     @Transactional
-    public CuentaResponseDto actualizar(String numeroCuenta, CuentaActualizacionDto dto) {
-        Cuenta cuenta = cuentaRepository.findByNumeroCuenta(numeroCuenta)
-                .orElseThrow(() -> new ResourceNotFoundException("No se encontró una cuenta con número: " + numeroCuenta));
+    public CuentaResponseDto actualizar(CuentaActualizacionDto dto) {
+        Cuenta cuenta = cuentaRepository.findByNumeroCuenta(dto.getNumeroCuenta())
+                .orElseThrow(() -> new ResourceNotFoundException("No se encontró una cuenta con número: " + dto.getNumeroCuenta()));
 
-        // Validar que no se meta un saldo negativo
         if (dto.getSaldo() != null && dto.getSaldo().signum() < 0) {
             throw new BusinessRuleException("El saldo no puede ser negativo.");
         }
@@ -99,9 +115,6 @@ public class CuentaServiceImpl implements CuentaService {
         return mapearAResponse(cuentaRepository.save(cuenta));
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // HELPER
-    // ─────────────────────────────────────────────────────────────────────────
     private CuentaResponseDto mapearAResponse(Cuenta c) {
         String nombreCliente = "";
         Long clienteId = null;

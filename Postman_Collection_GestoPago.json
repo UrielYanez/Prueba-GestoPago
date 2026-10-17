@@ -1,0 +1,1255 @@
+{
+  "info": {
+    "_postman_id": "b3e94471-7f89-4a99-b1d5-8f6a9c1d0e12",
+    "name": "API Administración de Usuarios y Clientes - Suite Automatizada",
+    "description": "Colección completa para pruebas de la API REST cumpliendo con Cero @PathVariable, Cero @RequestParam, Búsquedas dinámicas por @RequestBody, Respuestas uniformes (ApiResponse) y Manejo centralizado de excepciones.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8081",
+      "type": "string"
+    },
+    {
+      "key": "jwt_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cliente_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "numero_cuenta",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "temp_correo",
+      "value": "alejandro.aguayo@prueba.com",
+      "type": "string"
+    },
+    {
+      "key": "temp_curp",
+      "value": "AGRA950515HDFRYR01",
+      "type": "string"
+    },
+    {
+      "key": "temp_rfc",
+      "value": "AGRA950515HA1",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01. Autenticación y Registro",
+      "item": [
+        {
+          "name": "01. Registro Cliente (Onboarding) - Exitoso [201]",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Generar identificadores únicos para cada corrida cumpliendo los regex del backend",
+                  "const timestamp = new Date().getTime().toString().slice(-4);",
+                  "const dosDigitos = timestamp.slice(-2);",
+                  "const unDigito = timestamp.slice(-1);",
+                  "",
+                  "// CURP: 4 letras + 6 digitos + H + 5 letras + 1 digito + 1 digito",
+                  "const randomCurp = 'AGRA950515HDFRYR' + dosDigitos;",
+                  "",
+                  "// RFC: 4 letras + 6 digitos + [A-V1-9] + [A-Z1-9] + [0-9A]",
+                  "const randomRfc = 'AGRA950515HA' + unDigito;",
+                  "const randomEmail = 'usuario_' + timestamp + '@prueba.com';",
+                  "",
+                  "pm.collectionVariables.set('temp_correo', randomEmail);",
+                  "pm.collectionVariables.set('temp_curp', randomCurp);",
+                  "pm.collectionVariables.set('temp_rfc', randomRfc);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Respuesta cumple estructura uniforme ApiResponse', function () {",
+                  "    pm.expect(json.exito).to.be.true;",
+                  "    pm.expect(json.codigoEstado).to.eql(201);",
+                  "    pm.expect(json.datos).to.not.be.null;",
+                  "});",
+                  "",
+                  "if (json.datos && json.datos.id) {",
+                  "    pm.collectionVariables.set('cliente_id', json.datos.id);",
+                  "    console.log('Cliente ID guardado:', json.datos.id);",
+                  "}",
+                  "",
+                  "if (json.datos && json.datos.cuentas && json.datos.cuentas.length > 0) {",
+                  "    pm.collectionVariables.set('numero_cuenta', json.datos.cuentas[0].numeroCuenta);",
+                  "    console.log('Número de cuenta guardado:', json.datos.cuentas[0].numeroCuenta);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Alejandro\",\n  \"segundoNombre\": \"Martín\",\n  \"apellidoPaterno\": \"Aguayo\",\n  \"apellidoMaterno\": \"Reyes\",\n  \"fechaNacimiento\": \"1995-05-15\",\n  \"curp\": \"{{temp_curp}}\",\n  \"rfc\": \"{{temp_rfc}}\",\n  \"sexo\": \"HOMBRE\",\n  \"nacionalidad\": \"MEXICANA\",\n  \"estadoCivil\": \"SOLTERO\",\n  \"correoElectronico\": \"{{temp_correo}}\",\n  \"password\": \"Password123!\",\n  \"telefonoMovil\": \"5512345678\",\n  \"telefonoAlternativo\": \"\",\n  \"calle\": \"Av. Universidad\",\n  \"numeroExterior\": \"1200\",\n  \"numeroInterior\": \"B-4\",\n  \"codigoPostal\": \"03100\",\n  \"colonia\": \"Del Valle\",\n  \"municipio\": \"Benito Juárez\",\n  \"estado\": \"Ciudad de México\",\n  \"pais\": \"MEXICO\",\n  \"ocupacion\": \"Ingeniero de Software\",\n  \"empresa\": \"Tech Solutions\",\n  \"ingresoMensual\": 45000.00\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/clientes",
+              "host": ["{{base_url}}"],
+              "path": ["clientes"]
+            }
+          }
+        },
+        {
+          "name": "02. Login - Exitoso [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Retorna token JWT', function () {",
+                  "    pm.expect(json.datos.token).to.not.be.empty;",
+                  "});",
+                  "",
+                  "if (json.datos && json.datos.token) {",
+                  "    pm.collectionVariables.set('jwt_token', json.datos.token);",
+                  "    console.log('JWT Token guardado para siguientes peticiones');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"correo\": \"{{temp_correo}}\",\n  \"password\": \"Password123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "03. Error - Login Credenciales Inválidas [401]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Respuesta de error uniforme', function () {",
+                  "    pm.expect(json.exito).to.be.false;",
+                  "    pm.expect(json.codigoEstado).to.eql(401);",
+                  "    pm.expect(json.mensaje).to.include('incorrectos');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"correo\": \"{{temp_correo}}\",\n  \"password\": \"PasswordIncorrecta999!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02. Manejo Centralizado de Errores (ExceptionHandler)",
+      "item": [
+        {
+          "name": "04. Error - Validación Bean Validation (@Valid) [400]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('GlobalExceptionHandler intercepta y devuelve mapa de campos erróneos', function () {",
+                  "    pm.expect(json.exito).to.be.false;",
+                  "    pm.expect(json.codigoEstado).to.eql(400);",
+                  "    pm.expect(json.datos).to.be.an('object');",
+                  "    pm.expect(json.datos.nombre).to.not.be.undefined;",
+                  "    pm.expect(json.datos.curp).to.not.be.undefined;",
+                  "    pm.expect(json.datos.correoElectronico).to.not.be.undefined;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"\",\n  \"apellidoPaterno\": \"\",\n  \"fechaNacimiento\": \"2099-01-01\",\n  \"curp\": \"CURP_INVALIDA\",\n  \"rfc\": \"RFC_INVALIDO\",\n  \"correoElectronico\": \"correo_sin_arroba\",\n  \"password\": \"123\",\n  \"telefonoMovil\": \"123\",\n  \"calle\": \"\",\n  \"numeroExterior\": \"\",\n  \"codigoPostal\": \"123\",\n  \"ocupacion\": \"\",\n  \"empresa\": \"\",\n  \"ingresoMensual\": -500\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/clientes",
+              "host": ["{{base_url}}"],
+              "path": ["clientes"]
+            }
+          }
+        },
+        {
+          "name": "05. Error - Recurso Duplicado (CURP/RFC/Correo) [409]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 409 Conflict', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Excepción DuplicatedResourceException capturada con éxito', function () {",
+                  "    pm.expect(json.exito).to.be.false;",
+                  "    pm.expect(json.codigoEstado).to.eql(409);",
+                  "    pm.expect(json.mensaje).to.include('Ya existe');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Prueba\",\n  \"apellidoPaterno\": \"Duplicado\",\n  \"apellidoMaterno\": \"Reyes\",\n  \"fechaNacimiento\": \"1990-01-01\",\n  \"curp\": \"{{temp_curp}}\",\n  \"rfc\": \"{{temp_rfc}}\",\n  \"sexo\": \"HOMBRE\",\n  \"nacionalidad\": \"MEXICANA\",\n  \"estadoCivil\": \"SOLTERO\",\n  \"correoElectronico\": \"{{temp_correo}}\",\n  \"password\": \"Password123!\",\n  \"telefonoMovil\": \"5512345678\",\n  \"calle\": \"Calle Falsa\",\n  \"numeroExterior\": \"123\",\n  \"codigoPostal\": \"03100\",\n  \"pais\": \"MEXICO\",\n  \"ocupacion\": \"Empleado\",\n  \"empresa\": \"Empresa\",\n  \"ingresoMensual\": 10000.00\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/clientes",
+              "host": ["{{base_url}}"],
+              "path": ["clientes"]
+            }
+          }
+        },
+        {
+          "name": "06. Error - Regla de Negocio: Menor de Edad [422]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 422 Unprocessable Entity', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Excepción BusinessRuleException capturada con éxito', function () {",
+                  "    pm.expect(json.exito).to.be.false;",
+                  "    pm.expect(json.codigoEstado).to.eql(422);",
+                  "    pm.expect(json.mensaje).to.include('mayor de edad');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Menor\",\n  \"apellidoPaterno\": \"Prueba\",\n  \"apellidoMaterno\": \"Edad\",\n  \"fechaNacimiento\": \"2015-01-01\",\n  \"curp\": \"MENO150101HDFRRN01\",\n  \"rfc\": \"MENO150101HA1\",\n  \"sexo\": \"HOMBRE\",\n  \"nacionalidad\": \"MEXICANA\",\n  \"estadoCivil\": \"SOLTERO\",\n  \"correoElectronico\": \"menor_edad@prueba.com\",\n  \"password\": \"Password123!\",\n  \"telefonoMovil\": \"5512345678\",\n  \"calle\": \"Av Principal\",\n  \"numeroExterior\": \"100\",\n  \"codigoPostal\": \"03100\",\n  \"pais\": \"MEXICO\",\n  \"ocupacion\": \"Estudiante\",\n  \"empresa\": \"Escuela\",\n  \"ingresoMensual\": 1000.00\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/clientes",
+              "host": ["{{base_url}}"],
+              "path": ["clientes"]
+            }
+          }
+        },
+        {
+          "name": "07. Error - JSON Mal Formado [400]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 400 Bad Request', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('HttpMessageNotReadableException capturada limpiamente sin trazas', function () {",
+                  "    pm.expect(json.exito).to.be.false;",
+                  "    pm.expect(json.codigoEstado).to.eql(400);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"ESTO_NO_ES_UN_NUMERO_ID\",,\n  \"nombre\": \"Error JSON\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/clientes/buscar",
+              "host": ["{{base_url}}"],
+              "path": ["clientes", "buscar"]
+            }
+          }
+        },
+        {
+          "name": "08. Error - Recurso No Encontrado [404]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 404 Not Found', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('ResourceNotFoundException capturada con éxito', function () {",
+                  "    pm.expect(json.exito).to.be.false;",
+                  "    pm.expect(json.codigoEstado).to.eql(404);",
+                  "    pm.expect(json.mensaje).to.include('No se encontraron');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": 999999999\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/clientes/buscar",
+              "host": ["{{base_url}}"],
+              "path": ["clientes", "buscar"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03. Consultas Paginadas Dinámicas (Único Endpoint @RequestBody)",
+      "item": [
+        {
+          "name": "09. Clientes - Búsqueda por ID Vía Body [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Retorna el cliente consultado', function () {",
+                  "    pm.expect(json.exito).to.be.true;",
+                  "    pm.expect(json.datos.contenido.length).to.be.at.least(1);",
+                  "    pm.expect(json.datos.contenido[0].id).to.eql(Number(pm.collectionVariables.get('cliente_id')));",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": {{cliente_id}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/clientes/buscar",
+              "host": ["{{base_url}}"],
+              "path": ["clientes", "buscar"]
+            }
+          }
+        },
+        {
+          "name": "10. Clientes - Búsqueda Combinada y Paginada [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Metadatos de paginación correctos', function () {",
+                  "    pm.expect(json.datos.paginaActual).to.eql(0);",
+                  "    pm.expect(json.datos.tamanoPagina).to.eql(5);",
+                  "    pm.expect(json.datos.totalElementos).to.be.at.least(1);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"activo\": true,\n  \"page\": 0,\n  \"size\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/clientes/buscar",
+              "host": ["{{base_url}}"],
+              "path": ["clientes", "buscar"]
+            }
+          }
+        },
+        {
+          "name": "11. Clientes - Paginación Independiente (Solo size) [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Aplica size especificado con page default (0)', function () {",
+                  "    pm.expect(json.datos.tamanoPagina).to.eql(3);",
+                  "    pm.expect(json.datos.paginaActual).to.eql(0);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"size\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/clientes/buscar",
+              "host": ["{{base_url}}"],
+              "path": ["clientes", "buscar"]
+            }
+          }
+        },
+        {
+          "name": "12. Clientes - Paginación Independiente (Solo page) [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Aplica page especificado con size default (10)', function () {",
+                  "    pm.expect(json.datos.paginaActual).to.eql(0);",
+                  "    pm.expect(json.datos.tamanoPagina).to.eql(10);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"page\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/clientes/buscar",
+              "host": ["{{base_url}}"],
+              "path": ["clientes", "buscar"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04. Actualización y Ciclo de Vida de Clientes",
+      "item": [
+        {
+          "name": "13. Clientes - Actualizar Parcial (PATCH Vía Body) [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Campos actualizados correctamente', function () {",
+                  "    pm.expect(json.datos.telefonoMovil).to.eql('5599887766');",
+                  "    pm.expect(json.datos.ocupacion).to.eql('Arquitecto de Software');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": {{cliente_id}},\n  \"telefonoMovil\": \"5599887766\",\n  \"ocupacion\": \"Arquitecto de Software\",\n  \"ingresoMensual\": 65000.00\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/clientes/actualizar",
+              "host": ["{{base_url}}"],
+              "path": ["clientes", "actualizar"]
+            }
+          }
+        },
+        {
+          "name": "14. Clientes - Desactivar (Baja Lógica Vía Body) [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Cliente desactivado con éxito', function () {",
+                  "    pm.expect(json.exito).to.be.true;",
+                  "    pm.expect(json.mensaje).to.include('desactivado');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": {{cliente_id}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/clientes/desactivar",
+              "host": ["{{base_url}}"],
+              "path": ["clientes", "desactivar"]
+            }
+          }
+        },
+        {
+          "name": "15. Error - Intentar Modificar Cliente Inactivo [422]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 422 Unprocessable Entity', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Regla de negocio impide modificar inactivos', function () {",
+                  "    pm.expect(json.exito).to.be.false;",
+                  "    pm.expect(json.mensaje).to.include('inactivo');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": {{cliente_id}},\n  \"telefonoMovil\": \"5511223344\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/clientes/actualizar",
+              "host": ["{{base_url}}"],
+              "path": ["clientes", "actualizar"]
+            }
+          }
+        },
+        {
+          "name": "16. Clientes - Reactivar Cuenta Vía Body [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Reactivación exitosa', function () {",
+                  "    pm.expect(json.exito).to.be.true;",
+                  "    pm.expect(json.mensaje).to.include('reactivada');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"correo\": \"{{temp_correo}}\",\n  \"password\": \"Password123!\",\n  \"curp\": \"{{temp_curp}}\",\n  \"rfc\": \"{{temp_rfc}}\",\n  \"fechaNacimiento\": \"1995-05-15\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/clientes/reactivar",
+              "host": ["{{base_url}}"],
+              "path": ["clientes", "reactivar"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05. Módulo de Cuentas Bancarias",
+      "item": [
+        {
+          "name": "17. Cuentas - Búsqueda Dinámica por Número de Cuenta [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Cuenta encontrada', function () {",
+                  "    pm.expect(json.exito).to.be.true;",
+                  "    pm.expect(json.datos.contenido[0].numeroCuenta).to.eql(pm.collectionVariables.get('numero_cuenta'));",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroCuenta\": \"{{numero_cuenta}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/cuentas/buscar",
+              "host": ["{{base_url}}"],
+              "path": ["cuentas", "buscar"]
+            }
+          }
+        },
+        {
+          "name": "18. Cuentas - Crear Segunda Cuenta Vía Body [201]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Segunda cuenta creada correctamente', function () {",
+                  "    pm.expect(json.exito).to.be.true;",
+                  "    pm.expect(json.datos.numeroCuenta).to.not.be.empty;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"clienteId\": {{cliente_id}}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/cuentas",
+              "host": ["{{base_url}}"],
+              "path": ["cuentas"]
+            }
+          }
+        },
+        {
+          "name": "19. Cuentas - Actualizar Saldo Vía Body [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Saldo actualizado correctamente', function () {",
+                  "    pm.expect(json.datos.saldo).to.eql(25000.75);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroCuenta\": \"{{numero_cuenta}}\",\n  \"saldo\": 25000.75,\n  \"estatus\": \"ACTIVA\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/cuentas/actualizar",
+              "host": ["{{base_url}}"],
+              "path": ["cuentas", "actualizar"]
+            }
+          }
+        },
+        {
+          "name": "20. Error - Saldo Negativo en Cuenta [422]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 422 Unprocessable Entity', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Impide saldo negativo', function () {",
+                  "    pm.expect(json.exito).to.be.false;",
+                  "    pm.expect(json.mensaje).to.include('negativo');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroCuenta\": \"{{numero_cuenta}}\",\n  \"saldo\": -150.00\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/cuentas/actualizar",
+              "host": ["{{base_url}}"],
+              "path": ["cuentas", "actualizar"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "06. Módulo de Usuarios",
+      "item": [
+        {
+          "name": "21. Usuarios - Búsqueda Dinámica y Paginada [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Retorna usuario en lista paginada', function () {",
+                  "    pm.expect(json.exito).to.be.true;",
+                  "    pm.expect(json.datos.contenido.length).to.be.at.least(1);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"correo\": \"{{temp_correo}}\",\n  \"page\": 0,\n  \"size\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/usuarios/buscar",
+              "host": ["{{base_url}}"],
+              "path": ["usuarios", "buscar"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "07. Catálogo Externo de Productos",
+      "item": [
+        {
+          "name": "22. Productos - Obtener Catálogo [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Respuesta uniforme con catálogo de productos', function () {",
+                  "    pm.expect(json.exito).to.be.true;",
+                  "    pm.expect(json.datos).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/getProductList",
+              "host": ["{{base_url}}"],
+              "path": ["getProductList"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

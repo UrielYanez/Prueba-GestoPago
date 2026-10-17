@@ -1,10 +1,11 @@
 package com.proyecto.servicios.service;
 
+import com.proyecto.servicios.model.PaginatedResponse;
+import com.proyecto.servicios.model.UsuarioBusquedaRequestDto;
 import com.proyecto.servicios.model.UsuarioRegistroDto;
 import com.proyecto.servicios.model.UsuarioResponseDto;
-import java.util.List;
 
 public interface UsuarioService {
-    List<UsuarioResponseDto> filtrarUsuarios(String correo, Boolean activo);
+    PaginatedResponse<UsuarioResponseDto> buscar(UsuarioBusquedaRequestDto dto);
     UsuarioResponseDto agregarUsuario(UsuarioRegistroDto dto);
 }

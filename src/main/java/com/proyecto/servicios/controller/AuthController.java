@@ -1,9 +1,11 @@
 package com.proyecto.servicios.controller;
 
+import com.proyecto.servicios.model.ApiResponse;
 import com.proyecto.servicios.model.LoginRequestDto;
 import com.proyecto.servicios.model.LoginResponseDto;
 import com.proyecto.servicios.service.AuthService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -22,11 +24,16 @@ public class AuthController {
 
     /**
      * POST /auth/login
-     * Recibe correo y password, valida credenciales y retorna un JWT.
+     * Recibe correo y password, valida credenciales y retorna un JWT dentro de ApiResponse uniforme.
      */
     @PostMapping("/login")
-    public ResponseEntity<LoginResponseDto> login(@Valid @RequestBody LoginRequestDto request) {
+    public ResponseEntity<ApiResponse<LoginResponseDto>> login(@Valid @RequestBody LoginRequestDto request) {
         LoginResponseDto response = authService.login(request);
-        return ResponseEntity.ok(response);
+        ApiResponse<LoginResponseDto> respuesta = ApiResponse.exitoso(
+                "Autenticación exitosa.",
+                response,
+                HttpStatus.OK.value()
+        );
+        return ResponseEntity.ok(respuesta);
     }
 }
