@@ -11,6 +11,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -97,7 +98,17 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(response, HttpStatus.METHOD_NOT_ALLOWED);
     }
 
-    // 9. Captura genérica de cualquier error inesperado para evitar fugas de SQL o stacktraces
+    // 9. Ruta o recurso no encontrado (404 Not Found estilizado)
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFound(NoResourceFoundException ex) {
+        ApiResponse<Void> response = ApiResponse.error(
+                "La ruta o recurso solicitado no fue encontrado.",
+                HttpStatus.NOT_FOUND.value()
+        );
+        return new ResponseEntity<>(response, HttpStatus.NOT_FOUND);
+    }
+
+    // 10. Captura genérica de cualquier error inesperado para evitar fugas de SQL o stacktraces
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleGenericException(Exception ex) {
         log.error("Excepción inesperada no controlada: {}", ex.getMessage(), ex);

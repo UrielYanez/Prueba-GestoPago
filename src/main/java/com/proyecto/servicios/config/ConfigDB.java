@@ -27,7 +27,6 @@ import java.util.Map;
 @EnableTransactionManagement
 @EnableJpaRepositories(
         basePackages = {
-                "com.proyecto.servicios.repositorys.sf",
                 "com.proyecto.servicios.repositorys.gestopago",
                 "com.proyecto.servicios.repositorys.postgres"
         },
@@ -67,7 +66,6 @@ public class ConfigDB {
         try{
           em.setDataSource(sfDatasource());
           em.setPackagesToScan(
-                  "com.proyecto.servicios.entity.sf",
                   "com.proyecto.servicios.entity.gestopago",
                   "com.proyecto.servicios.entity.postgres"
           );
