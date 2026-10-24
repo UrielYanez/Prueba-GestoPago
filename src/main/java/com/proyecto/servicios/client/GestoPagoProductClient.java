@@ -35,31 +35,33 @@ public class GestoPagoProductClient {
     @Autowired
     private GestoPagoTokenService gestoPagoTokenService;
 
+    @Autowired
+    private GestoPagoProductFeignClient productFeignClient;
+
     public CatProductXmlDto getProductListXml() {
         String url = baseUrl + endpointPath;
-        log.info("Iniciando invocación GET a {}", url);
+        log.info("Iniciando invocación Feign a {}", url);
         try {
-            // Obtenemos el token activo de base de datos usando el método real
+            // Obtenemos el token activo de base de datos o forzamos renovación inicial si aún no existe
             GestoPagoToken tokenEntity = gestoPagoTokenService.obtenerTokenActivo(idDistribuidor, codigoDispositivo)
-                    .orElseThrow(() -> new RuntimeException("No hay token activo de GestoPago registrado en BD"));
+                    .orElseGet(() -> {
+                        log.info("No se encontró token activo de GestoPago en BD. Forzando autenticación...");
+                        gestoPagoTokenService.renovarToken();
+                        return gestoPagoTokenService.obtenerTokenActivo(idDistribuidor, codigoDispositivo)
+                                .orElseThrow(() -> new RuntimeException("No fue posible obtener un token activo de GestoPago"));
+                    });
 
-            String bearerToken = tokenEntity.getToken(); // Ajusta al getter de tu entidad GestoPagoToken si se llama distinto
+            String bearerToken = tokenEntity.getToken();
+            String xmlResponse = productFeignClient.getProductListXml("Bearer " + bearerToken);
 
-            HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(bearerToken);
-            headers.setAccept(MediaType.parseMediaTypes("application/xml, text/xml, application/json"));
-
-            HttpEntity<Void> entity = new HttpEntity<>(headers);
-            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, entity, String.class);
-
-            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                log.info("Fin de invocación GET exitosa. Parseando XML...");
+            if (xmlResponse != null && !xmlResponse.isBlank()) {
+                log.info("Fin de invocación Feign exitosa. Parseando XML...");
                 JAXBContext context = JAXBContext.newInstance(CatProductXmlDto.class);
                 Unmarshaller unmarshaller = context.createUnmarshaller();
-                return (CatProductXmlDto) unmarshaller.unmarshal(new StringReader(response.getBody()));
+                return (CatProductXmlDto) unmarshaller.unmarshal(new StringReader(xmlResponse));
             } else {
-                log.warn("Respuesta no exitosa del servicio externo. Código: {}", response.getStatusCode());
-                throw new RuntimeException("Respuesta no exitosa: " + response.getStatusCode());
+                log.warn("Respuesta vacía del servicio externo Feign");
+                throw new RuntimeException("Respuesta vacía del servicio externo");
             }
         } catch (HttpClientErrorException.Unauthorized e) {
             log.error("Error de autenticación 401 con servicio externo.");

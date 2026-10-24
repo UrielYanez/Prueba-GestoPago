@@ -67,9 +67,47 @@ CREATE TABLE IF NOT EXISTS gestopago_tokens (
     fecha_creacion TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
+-- 6. Tabla de Pines de Confirmación (OTP transaccional con BCrypt)
+CREATE TABLE IF NOT EXISTS transaccion_pines (
+    id BIGSERIAL PRIMARY KEY,
+    cuenta_id BIGINT NOT NULL,
+    pin_hash VARCHAR(255) NOT NULL,
+    fecha_expiracion TIMESTAMP NOT NULL,
+    utilizado BOOLEAN NOT NULL DEFAULT FALSE,
+    intentos INT NOT NULL DEFAULT 0,
+    fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_pin_cuenta FOREIGN KEY (cuenta_id) REFERENCES cuentas(id) ON DELETE CASCADE
+);
+
+-- 7. Tabla de Transacciones y Comprobantes de Pago
+CREATE TABLE IF NOT EXISTS transacciones_pago (
+    id BIGSERIAL PRIMARY KEY,
+    cuenta_id BIGINT NOT NULL,
+    id_servicio VARCHAR(50) NOT NULL,
+    id_producto VARCHAR(50) NOT NULL,
+    telefono VARCHAR(20),
+    referencia VARCHAR(100),
+    bandera BOOLEAN NOT NULL DEFAULT TRUE,
+    monto DECIMAL(19, 2) NOT NULL,
+    upc VARCHAR(50) NOT NULL UNIQUE,
+    distribuidor VARCHAR(20) NOT NULL,
+    id_tx_proveedor VARCHAR(100),
+    num_autorizacion VARCHAR(100),
+    codigo_respuesta VARCHAR(20),
+    mensaje_respuesta VARCHAR(255),
+    saldo_proveedor DECIMAL(19, 2),
+    pin_gift_card VARCHAR(250),
+    fecha_transaccion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_transaccion_cuenta FOREIGN KEY (cuenta_id) REFERENCES cuentas(id)
+);
+
 -- Índices para busquedas
 CREATE INDEX idx_clientes_curp ON clientes(curp);
 CREATE INDEX idx_clientes_rfc ON clientes(rfc);
 CREATE INDEX idx_clientes_correo ON clientes(correo_electronico);
 CREATE INDEX idx_cuentas_numero ON cuentas(numero_cuenta);
 CREATE INDEX idx_usuarios_correo ON usuarios(correo);
+CREATE INDEX idx_pines_cuenta_expiracion ON transaccion_pines(cuenta_id, utilizado, fecha_expiracion);
+CREATE INDEX idx_tx_cuenta ON transacciones_pago(cuenta_id);
+CREATE INDEX idx_tx_upc ON transacciones_pago(upc);
+CREATE INDEX idx_tx_proveedor ON transacciones_pago(id_tx_proveedor);

@@ -2,6 +2,7 @@ package com.proyecto.servicios.controller;
 
 import com.proyecto.servicios.model.*;
 import com.proyecto.servicios.service.CuentaService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
  */
 @RestController
 @RequestMapping("/cuentas")
+@Tag(name = "Cuentas", description = "Administración de cuentas bancarias: apertura de cuentas secundarias, depósitos, retiros y balances")
 public class CuentaController {
 
     private final CuentaService cuentaService;
