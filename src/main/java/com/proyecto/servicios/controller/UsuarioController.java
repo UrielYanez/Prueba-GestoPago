@@ -6,6 +6,7 @@ import com.proyecto.servicios.model.UsuarioBusquedaRequestDto;
 import com.proyecto.servicios.model.UsuarioRegistroDto;
 import com.proyecto.servicios.model.UsuarioResponseDto;
 import com.proyecto.servicios.service.UsuarioService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.*;
  */
 @RestController
 @RequestMapping("/usuarios")
+@Tag(name = "Usuarios", description = "Gestión de credenciales de acceso, usuarios independientes y consultas paginadas")
 public class UsuarioController {
 
     private final UsuarioService usuarioService;

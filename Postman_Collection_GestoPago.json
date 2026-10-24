@@ -1248,6 +1248,81 @@
               "path": ["getProductList"]
             }
           }
+        },
+        {
+          "name": "22.1. Productos - Sincronizar Catálogo hacia MongoDB [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Catálogo sincronizado exitosamente con MongoDB', function () {",
+                  "    pm.expect(json.exito).to.be.true;",
+                  "    pm.expect(json.datos).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/productos/sincronizar",
+              "host": ["{{base_url}}"],
+              "path": ["productos", "sincronizar"]
+            }
+          }
+        },
+        {
+          "name": "22.2. Productos - Obtener Ficha Técnica por ID de Producto [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const json = pm.response.json();",
+                  "pm.test('Ficha técnica completa recuperada exitosamente', function () {",
+                  "    pm.expect(json.exito).to.be.true;",
+                  "    pm.expect(json.datos.idProducto).to.eql('381');",
+                  "    pm.expect(json.datos.idServicio).to.eql('124');",
+                  "    pm.expect(json.datos.servicio).to.eql('Movistar');",
+                  "    pm.expect(json.datos.precio).to.be.a('number');",
+                  "    pm.expect(json.datos.legend).to.be.a('string');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"idProducto\": \"381\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/productos/detalle",
+              "host": ["{{base_url}}"],
+              "path": ["productos", "detalle"]
+            }
+          }
         }
       ]
     },
@@ -1294,6 +1369,190 @@
               "raw": "{{base_url}}/api/ruta-que-no-existe",
               "host": ["{{base_url}}"],
               "path": ["api", "ruta-que-no-existe"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "07. Pagos y Transacciones GestoPago (2FA)",
+      "item": [
+        {
+          "name": "01. Solicitar PIN de Confirmación (OTP por Correo) [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "pm.test('Respuesta exitosa de generación de PIN', function () {",
+                  "    pm.expect(json.exito).to.be.true;",
+                  "    pm.expect(json.codigoEstado).to.eql(200);",
+                  "    pm.expect(json.mensaje).to.include('PIN de confirmación enviado exitosamente');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroCuenta\": \"0000000001\",\n  \"monto\": 100.00,\n  \"concepto\": \"Recarga Telcel 100\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos/solicitar-pin",
+              "host": ["{{base_url}}"],
+              "path": ["pagos", "solicitar-pin"]
+            }
+          }
+        },
+        {
+          "name": "02. Procesar Recarga Telefónica (bandera: true) [200 / GestoPago]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('Recarga procesada exitosamente por GestoPago', function () {",
+                  "        pm.expect(json.exito).to.be.true;",
+                  "        pm.expect(json.codigoEstado).to.eql(200);",
+                  "        pm.expect(json.datos.codigoRespuesta).to.eql('01');",
+                  "        pm.expect(json.datos).to.have.property('numAutorizacion');",
+                  "        pm.expect(json.datos.bandera).to.be.true;",
+                  "        pm.expect(json.datos.telefono).to.eql('5512345678');",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Error controlado con ApiResponse', function () {",
+                  "        pm.expect(json.exito).to.be.false;",
+                  "        pm.expect(json).to.have.property('mensaje');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroCuenta\": \"0000000001\",\n  \"idServicio\": \"124\",\n  \"idProducto\": \"381\",\n  \"precio\": 100.00,\n  \"distribuidor\": \"083\",\n  \"bandera\": true,\n  \"telefono\": \"5512345678\",\n  \"referencia\": null,\n  \"pin\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos/procesar",
+              "host": ["{{base_url}}"],
+              "path": ["pagos", "procesar"]
+            }
+          }
+        },
+        {
+          "name": "03. Procesar Pago de Servicio - CFE (bandera: false) [200 / 422 GestoPago]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('Servicio procesado exitosamente por GestoPago', function () {",
+                  "        pm.expect(json.exito).to.be.true;",
+                  "        pm.expect(json.codigoEstado).to.eql(200);",
+                  "        pm.expect(json.datos.codigoRespuesta).to.eql('01');",
+                  "        pm.expect(json.datos).to.have.property('numAutorizacion');",
+                  "        pm.expect(json.datos.bandera).to.be.false;",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Validación de referencia por el proveedor (ej. CFE Código 55 Referencia Inválida si es dummy)', function () {",
+                  "        pm.expect(json.exito).to.be.false;",
+                  "        pm.expect(json).to.have.property('mensaje');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroCuenta\": \"5734100099\",\n  \"idServicio\": \"166\",\n  \"idProducto\": \"597\",\n  \"precio\": 10.00,\n  \"distribuidor\": \"083\",\n  \"bandera\": false,\n  \"telefono\": null,\n  \"referencia\": \"012345678901\",\n  \"pin\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos/procesar",
+              "host": ["{{base_url}}"],
+              "path": ["pagos", "procesar"]
+            }
+          }
+        },
+        {
+          "name": "04. Procesar Tarjeta de Regalo - Amazon $100 (bandera: false) [200 / GestoPago]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('Tarjeta de Regalo generada exitosamente con PIN', function () {",
+                  "        pm.expect(json.exito).to.be.true;",
+                  "        pm.expect(json.codigoEstado).to.eql(200);",
+                  "        pm.expect(json.datos.codigoRespuesta).to.eql('01');",
+                  "        pm.expect(json.datos).to.have.property('numAutorizacion');",
+                  "        pm.expect(json.datos).to.have.property('pinGiftCard');",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Error controlado con ApiResponse', function () {",
+                  "        pm.expect(json.exito).to.be.false;",
+                  "        pm.expect(json).to.have.property('mensaje');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroCuenta\": \"5734100099\",\n  \"idServicio\": \"71\",\n  \"idProducto\": \"200\",\n  \"precio\": 100.00,\n  \"distribuidor\": \"083\",\n  \"bandera\": false,\n  \"telefono\": null,\n  \"referencia\": null,\n  \"pin\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos/procesar",
+              "host": ["{{base_url}}"],
+              "path": ["pagos", "procesar"]
             }
           }
         }

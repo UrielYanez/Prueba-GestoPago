@@ -2,6 +2,7 @@ package com.proyecto.servicios.controller;
 
 import com.proyecto.servicios.model.*;
 import com.proyecto.servicios.service.ClienteService;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
  */
 @RestController
 @RequestMapping("/clientes")
+@Tag(name = "Clientes", description = "Gestión integral de clientes: Onboarding, búsqueda multicriterio dinámica paginada, actualización parcial, baja lógica y reactivación")
 public class ClienteController {
 
     private final ClienteService clienteService;

@@ -44,6 +44,18 @@ public class CatProductXmlDto {
         @XmlAttribute(name = "idCatTipoServicio")
         private String idCatTipoServicio;
 
+        @XmlAttribute(name = "tipoFront")
+        private String tipoFront;
+
+        @XmlAttribute(name = "hasDigitoVerificador")
+        private Boolean hasDigitoVerificador;
+
+        @XmlAttribute(name = "showAyuda")
+        private Boolean showAyuda;
+
+        @XmlAttribute(name = "tipoReferencia")
+        private String tipoReferencia;
+
         @XmlAttribute(name = "precio")
         private String precio;
 
@@ -64,6 +76,18 @@ public class CatProductXmlDto {
 
         public String getIdCatTipoServicio() { return idCatTipoServicio; }
         public void setIdCatTipoServicio(String idCatTipoServicio) { this.idCatTipoServicio = idCatTipoServicio; }
+
+        public String getTipoFront() { return tipoFront; }
+        public void setTipoFront(String tipoFront) { this.tipoFront = tipoFront; }
+
+        public Boolean getHasDigitoVerificador() { return hasDigitoVerificador; }
+        public void setHasDigitoVerificador(Boolean hasDigitoVerificador) { this.hasDigitoVerificador = hasDigitoVerificador; }
+
+        public Boolean getShowAyuda() { return showAyuda; }
+        public void setShowAyuda(Boolean showAyuda) { this.showAyuda = showAyuda; }
+
+        public String getTipoReferencia() { return tipoReferencia; }
+        public void setTipoReferencia(String tipoReferencia) { this.tipoReferencia = tipoReferencia; }
 
         public String getPrecio() { return precio; }
         public void setPrecio(String precio) { this.precio = precio; }
