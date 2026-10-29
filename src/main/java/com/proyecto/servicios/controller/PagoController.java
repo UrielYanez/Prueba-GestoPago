@@ -2,6 +2,7 @@ package com.proyecto.servicios.controller;
 
 import com.proyecto.servicios.model.ApiResponse;
 import com.proyecto.servicios.model.ComprobantePagoResponseDto;
+import com.proyecto.servicios.model.ConciliarPagoRequestDto;
 import com.proyecto.servicios.model.ProcesarPagoRequestDto;
 import com.proyecto.servicios.model.SolicitudPinRequestDto;
 import com.proyecto.servicios.service.PagoService;
@@ -19,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/pagos")
 @RequiredArgsConstructor
-@Tag(name = "Pagos y Transacciones", description = "Procesamiento de pagos con GestoPago y confirmación de seguridad OTP (2FA) por correo")
+@Tag(name = "Pagos y Transacciones", description = "Procesamiento de pagos con GestoPago, confirmación de seguridad OTP (2FA) y conciliación de operaciones")
 public class PagoController {
 
     private final PagoService pagoService;
@@ -27,7 +28,7 @@ public class PagoController {
     @PostMapping("/solicitar-pin")
     @Operation(
             summary = "Solicitar código PIN de confirmación por correo",
-            description = "Valida que la cuenta esté activa y tenga saldo suficiente, genera un PIN de seguridad de 6 dígitos (válido por 5 minutos) y lo envía al correo del cliente."
+            description = "Valida la identidad del cliente, cuenta activa y saldo suficiente, genera un PIN de seguridad de 6 dígitos (válido por 5 minutos) y lo envía al correo del titular."
     )
     public ResponseEntity<ApiResponse<Void>> solicitarPin(@Valid @RequestBody SolicitudPinRequestDto request) {
         pagoService.solicitarPin(request);
@@ -42,12 +43,27 @@ public class PagoController {
     @PostMapping("/procesar")
     @Operation(
             summary = "Procesar pago y enviar a GestoPago",
-            description = "Verifica la cuenta activa, saldo disponible, valida el PIN OTP ingresado, cifra el payload con AES-256-CBC, realiza el envío a GestoPago sendTx.do, descuenta el saldo atómicamente si el código es 01 y genera el comprobante."
+            description = "Verifica identidad del cliente, catálogo en MongoDB (anti-manipulación de montos), concurrencia con bloqueo pesimista, idempotencia, PIN OTP, cifra con AES-256-CBC y ejecuta el pago en 2 fases con GestoPago sendTx.do."
     )
     public ResponseEntity<ApiResponse<ComprobantePagoResponseDto>> procesarPago(@Valid @RequestBody ProcesarPagoRequestDto request) {
         ComprobantePagoResponseDto comprobante = pagoService.procesarPago(request);
         ApiResponse<ComprobantePagoResponseDto> respuesta = ApiResponse.exitoso(
                 "Pago procesado exitosamente por GestoPago.",
+                comprobante,
+                HttpStatus.OK.value()
+        );
+        return ResponseEntity.ok(respuesta);
+    }
+
+    @PostMapping("/conciliar")
+    @Operation(
+            summary = "Conciliar transacción pendiente por timeout (confirmTx.do)",
+            description = "Consulta en GestoPago confirmTx.do el estado real de una transacción en PENDIENTE_CONCILIACION. Si fue aplicada (código 06), la consolida como EXITOSA; si no fue aplicada (código 70), la marca como RECHAZADA y reembolsa el saldo al cliente."
+    )
+    public ResponseEntity<ApiResponse<ComprobantePagoResponseDto>> conciliarPago(@Valid @RequestBody ConciliarPagoRequestDto request) {
+        ComprobantePagoResponseDto comprobante = pagoService.conciliarPago(request);
+        ApiResponse<ComprobantePagoResponseDto> respuesta = ApiResponse.exitoso(
+                "Conciliación de transacción completada.",
                 comprobante,
                 HttpStatus.OK.value()
         );

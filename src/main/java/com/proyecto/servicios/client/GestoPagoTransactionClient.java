@@ -16,4 +16,12 @@ public interface GestoPagoTransactionClient {
             @RequestParam("random") String random,
             @RequestParam("signed") String signed
     );
+
+    @PostMapping(value = "${gestopago.service.confirmTx:/sistema/service/confirmTx.do}", consumes = MediaType.APPLICATION_FORM_URLENCODED_VALUE)
+    String confirmTx(
+            @RequestHeader("Authorization") String bearerToken,
+            @RequestHeader("X-API-Key") String apiKey,
+            @RequestParam("random") String random,
+            @RequestParam("signed") String signed
+    );
 }

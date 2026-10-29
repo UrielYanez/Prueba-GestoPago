@@ -45,7 +45,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/clientes/reactivar").permitAll()
                 .requestMatchers("/auth/login").permitAll()
                 .requestMatchers("/error").permitAll()
-                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html", "/getProductList", "/productos/**", "/pagos/**").permitAll()
+                .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html", "/getProductList", "/productos/**").permitAll()
                 // Todo lo demás requiere autenticación
                 .anyRequest().authenticated()
             )

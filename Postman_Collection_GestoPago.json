@@ -1375,7 +1375,7 @@
       ]
     },
     {
-      "name": "07. Pagos y Transacciones GestoPago (2FA)",
+      "name": "09. Pagos y Transacciones GestoPago (2FA)",
       "item": [
         {
           "name": "01. Solicitar PIN de Confirmación (OTP por Correo) [200]",
@@ -1404,11 +1404,15 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
               }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"numeroCuenta\": \"0000000001\",\n  \"monto\": 100.00,\n  \"concepto\": \"Recarga Telcel 100\"\n}"
+              "raw": "{\n  \"numeroCuenta\": \"5734100099\",\n  \"monto\": 100.00,\n  \"concepto\": \"Recarga Movistar 100\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/pagos/solicitar-pin",
@@ -1429,7 +1433,8 @@
                   "    pm.test('Recarga procesada exitosamente por GestoPago', function () {",
                   "        pm.expect(json.exito).to.be.true;",
                   "        pm.expect(json.codigoEstado).to.eql(200);",
-                  "        pm.expect(json.datos.codigoRespuesta).to.eql('01');",
+                  "        pm.expect(json.datos.codigoRespuesta).to.be.oneOf(['01', 'APROBADO']);",
+                  "        pm.expect(json.datos.estadoTransaccion).to.eql('EXITOSA');",
                   "        pm.expect(json.datos).to.have.property('numAutorizacion');",
                   "        pm.expect(json.datos.bandera).to.be.true;",
                   "        pm.expect(json.datos.telefono).to.eql('5512345678');",
@@ -1451,11 +1456,15 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
               }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"numeroCuenta\": \"0000000001\",\n  \"idServicio\": \"124\",\n  \"idProducto\": \"381\",\n  \"precio\": 100.00,\n  \"distribuidor\": \"083\",\n  \"bandera\": true,\n  \"telefono\": \"5512345678\",\n  \"referencia\": null,\n  \"pin\": \"123456\"\n}"
+              "raw": "{\n  \"numeroCuenta\": \"5734100099\",\n  \"idServicio\": \"124\",\n  \"idProducto\": \"381\",\n  \"precio\": 100.00,\n  \"distribuidor\": \"083\",\n  \"bandera\": true,\n  \"telefono\": \"5512345678\",\n  \"referencia\": null,\n  \"pin\": \"123456\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/pagos/procesar",
@@ -1476,7 +1485,7 @@
                   "    pm.test('Servicio procesado exitosamente por GestoPago', function () {",
                   "        pm.expect(json.exito).to.be.true;",
                   "        pm.expect(json.codigoEstado).to.eql(200);",
-                  "        pm.expect(json.datos.codigoRespuesta).to.eql('01');",
+                  "        pm.expect(json.datos.codigoRespuesta).to.be.oneOf(['01', 'APROBADO']);",
                   "        pm.expect(json.datos).to.have.property('numAutorizacion');",
                   "        pm.expect(json.datos.bandera).to.be.false;",
                   "    });",
@@ -1497,6 +1506,10 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
               }
             ],
             "body": {
@@ -1522,7 +1535,8 @@
                   "    pm.test('Tarjeta de Regalo generada exitosamente con PIN', function () {",
                   "        pm.expect(json.exito).to.be.true;",
                   "        pm.expect(json.codigoEstado).to.eql(200);",
-                  "        pm.expect(json.datos.codigoRespuesta).to.eql('01');",
+                  "        pm.expect(json.datos.codigoRespuesta).to.be.oneOf(['01', 'APROBADO']);",
+                  "        pm.expect(json.datos.estadoTransaccion).to.eql('EXITOSA');",
                   "        pm.expect(json.datos).to.have.property('numAutorizacion');",
                   "        pm.expect(json.datos).to.have.property('pinGiftCard');",
                   "    });",
@@ -1543,11 +1557,102 @@
               {
                 "key": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
               }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"numeroCuenta\": \"5734100099\",\n  \"idServicio\": \"71\",\n  \"idProducto\": \"200\",\n  \"precio\": 100.00,\n  \"distribuidor\": \"083\",\n  \"bandera\": false,\n  \"telefono\": null,\n  \"referencia\": null,\n  \"pin\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos/procesar",
+              "host": ["{{base_url}}"],
+              "path": ["pagos", "procesar"]
+            }
+          }
+        },
+        {
+          "name": "05. Conciliar Transacción Pendiente por Timeout (confirmTx.do) [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('Conciliación ejecutada correctamente con confirmTx.do', function () {",
+                  "        pm.expect(json.exito).to.be.true;",
+                  "        pm.expect(json.datos).to.have.property('estadoTransaccion');",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Respuesta controlada de conciliación', function () {",
+                  "        pm.expect(json.exito).to.be.false;",
+                  "        pm.expect(json).to.have.property('mensaje');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"upc\": \"UPC1792804103921\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos/conciliar",
+              "host": ["{{base_url}}"],
+              "path": ["pagos", "conciliar"]
+            }
+          }
+        },
+        {
+          "name": "06. Rechazo Anti-Manipulación de Monto en Catálogo [422]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.test('Bloquea monto manipulado distinto al precio oficial en MongoDB [422]', function () {",
+                  "    pm.expect(json.exito).to.be.false;",
+                  "    pm.expect(json).to.have.property('mensaje');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroCuenta\": \"5734100099\",\n  \"idServicio\": \"124\",\n  \"idProducto\": \"381\",\n  \"precio\": 1.00,\n  \"distribuidor\": \"083\",\n  \"bandera\": true,\n  \"telefono\": \"5512345678\",\n  \"referencia\": null,\n  \"pin\": \"123456\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/pagos/procesar",

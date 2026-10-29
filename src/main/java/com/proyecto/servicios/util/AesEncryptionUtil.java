@@ -61,8 +61,8 @@ public class AesEncryptionUtil {
             byte[] encrypted = cipher.doFinal(plainText.getBytes(StandardCharsets.UTF_8));
             return Base64.getEncoder().encodeToString(encrypted);
         } catch (GeneralSecurityException e) {
-            log.error("Error al cifrar texto con AES: {}", e.getMessage(), e);
-            throw new BusinessRuleException("Error al cifrar el payload de la transacción: " + e.getMessage());
+            log.error("Error al cifrar texto con AES: {}", e.getMessage());
+            throw new BusinessRuleException("Error al cifrar el payload de la transacción.");
         }
     }
 
@@ -73,19 +73,19 @@ public class AesEncryptionUtil {
             byte[] decrypted = cipher.doFinal(Base64.getDecoder().decode(base64Encrypted.trim()));
             return new String(decrypted, StandardCharsets.UTF_8);
         } catch (GeneralSecurityException e) {
-            log.error("Error al descifrar texto con AES: {}", e.getMessage(), e);
-            throw new BusinessRuleException("Error al descifrar respuesta: " + e.getMessage());
+            log.error("Error al descifrar texto con AES: {}", e.getMessage());
+            throw new BusinessRuleException("Error al descifrar respuesta.");
         }
     }
 
     public String encryptPayload(GestoPagoTxPayload payload) {
         try {
             String json = objectMapper.writeValueAsString(payload);
-            log.info("JSON payload antes de cifrado AES: {}", json);
+            log.debug("Payload serializado correctamente para cifrado AES (UPC: {})", payload.getUpc());
             return encrypt(json);
         } catch (Exception e) {
-            log.error("Error al serializar y cifrar GestoPagoTxPayload: {}", e.getMessage(), e);
-            throw new BusinessRuleException("Error al procesar payload de transacción: " + e.getMessage());
+            log.error("Error al serializar y cifrar GestoPagoTxPayload: {}", e.getMessage());
+            throw new BusinessRuleException("Error al procesar payload de transacción.");
         }
     }
 }

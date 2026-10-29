@@ -30,8 +30,12 @@ public class FlywayConfig {
                     "IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'transacciones_pago' AND column_name = 'referencia_telefono') THEN " +
                     "    ALTER TABLE transacciones_pago ALTER COLUMN referencia_telefono DROP NOT NULL; " +
                     "END IF; " +
+                    "IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'transacciones_pago') THEN " +
+                    "    ALTER TABLE transacciones_pago ADD COLUMN IF NOT EXISTS estado VARCHAR(30) NOT NULL DEFAULT 'EXITOSA'; " +
+                    "    ALTER TABLE transacciones_pago ADD COLUMN IF NOT EXISTS hora_local VARCHAR(20); " +
+                    "END IF; " +
                     "END $$;");
-            log.info("Columna referencia_telefono ajustada exitosamente en PostgreSQL.");
+            log.info("Columnas de transacciones_pago verificadas y ajustadas exitosamente en PostgreSQL.");
         } catch (Exception e) {
             log.warn("Nota al verificar columnas de transacciones_pago: {}", e.getMessage());
         }
