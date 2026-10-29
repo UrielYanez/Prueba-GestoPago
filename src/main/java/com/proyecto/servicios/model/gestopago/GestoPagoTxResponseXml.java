@@ -26,6 +26,15 @@ public class GestoPagoTxResponseXml {
     @XmlElement(name = "MENSAJE")
     private MensajeWrapper mensaje;
 
+    public String getIdTx() {
+        if (idTx != null && !idTx.isBlank()) {
+            return idTx.trim();
+        }
+        return (mensaje != null && mensaje.getIdTx() != null && !mensaje.getIdTx().isBlank())
+                ? mensaje.getIdTx().trim()
+                : null;
+    }
+
     public String getPinGiftCard() {
         if (mensaje != null && mensaje.getPin() != null && !mensaje.getPin().isBlank()) {
             return mensaje.getPin().trim();
@@ -49,12 +58,36 @@ public class GestoPagoTxResponseXml {
         return "01".equals(getCodigo());
     }
 
+    /**
+     * En confirmTx.do, el código 06 significa que la transacción fue aplicada exitosamente en el proveedor.
+     */
+    public boolean isConfirmadoExitoso() {
+        return "01".equals(getCodigo()) || "06".equals(getCodigo());
+    }
+
+    /**
+     * En confirmTx.do, el código 70 significa que la transacción NO fue aplicada en el proveedor.
+     */
+    public boolean isNoAplicada() {
+        return "70".equals(getCodigo());
+    }
+
+    /**
+     * En sendTx.do, el código 82 significa tiempo de espera alcanzado en el proveedor.
+     */
+    public boolean isTimeoutProveedor() {
+        return "82".equals(getCodigo());
+    }
+
     @XmlAccessorType(XmlAccessType.FIELD)
     @Getter
     @Setter
     public static class MensajeWrapper {
         @XmlElement(name = "CODIGO")
         private String codigo;
+
+        @XmlElement(name = "ID_TX")
+        private String idTx;
 
         @XmlElement(name = "PIN")
         private String pin;

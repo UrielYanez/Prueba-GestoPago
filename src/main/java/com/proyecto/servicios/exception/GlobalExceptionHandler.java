@@ -67,6 +67,20 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(response, HttpStatus.UNAUTHORIZED);
     }
 
+    // 5.1 Operación no autorizada sobre una cuenta o recurso ajeno (403 Forbidden)
+    @ExceptionHandler(UnauthorizedOperationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnauthorizedOperationException(UnauthorizedOperationException ex) {
+        ApiResponse<Void> response = ApiResponse.error(ex.getMessage(), HttpStatus.FORBIDDEN.value());
+        return new ResponseEntity<>(response, HttpStatus.FORBIDDEN);
+    }
+
+    // 5.2 Timeout con proveedor externo de pagos (504 Gateway Timeout - Pendiente de Conciliación)
+    @ExceptionHandler(ProviderTimeoutException.class)
+    public ResponseEntity<ApiResponse<Void>> handleProviderTimeoutException(ProviderTimeoutException ex) {
+        ApiResponse<Void> response = ApiResponse.error(ex.getMessage(), HttpStatus.GATEWAY_TIMEOUT.value());
+        return new ResponseEntity<>(response, HttpStatus.GATEWAY_TIMEOUT);
+    }
+
     // 6. Tipos de datos incompatibles en parámetros
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<ApiResponse<Void>> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {

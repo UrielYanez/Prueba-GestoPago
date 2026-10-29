@@ -65,6 +65,14 @@ public class TransaccionPago {
     @Column(name = "pin_gift_card", length = 250)
     private String pinGiftCard;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "estado", nullable = false, length = 30)
+    @Builder.Default
+    private EstadoTransaccion estado = EstadoTransaccion.EN_PROCESO;
+
+    @Column(name = "hora_local", length = 20)
+    private String horaLocal;
+
     @Column(name = "fecha_transaccion", nullable = false, updatable = false)
     @Builder.Default
     private LocalDateTime fechaTransaccion = LocalDateTime.now();

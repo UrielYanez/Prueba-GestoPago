@@ -1,6 +1,7 @@
 package com.proyecto.servicios.service;
 
 import com.proyecto.servicios.model.ComprobantePagoResponseDto;
+import com.proyecto.servicios.model.ConciliarPagoRequestDto;
 import com.proyecto.servicios.model.ProcesarPagoRequestDto;
 import com.proyecto.servicios.model.SolicitudPinRequestDto;
 
@@ -13,8 +14,15 @@ public interface PagoService {
     void solicitarPin(SolicitudPinRequestDto request);
 
     /**
-     * Valida cuenta activa, saldo suficiente, verifica el código PIN ingresado, cifra el payload con AES-256-CBC,
-     * envía la transacción a sendTx.do de GestoPago, descuenta saldo si el código es 01, y registra el comprobante.
+     * Valida identidad, titularidad de cuenta, catálogo de productos, paridad de precios, idempotencia,
+     * bloqueo pesimista de saldo, PIN OTP, envía la transacción a sendTx.do de GestoPago en esquema de 2 fases
+     * y gestiona la respuesta o compensación.
      */
     ComprobantePagoResponseDto procesarPago(ProcesarPagoRequestDto request);
+
+    /**
+     * Concilia el estado de una transacción que quedó en PENDIENTE_CONCILIACION por timeout invocando confirmTx.do
+     * de GestoPago con los mismos parámetros de la solicitud original.
+     */
+    ComprobantePagoResponseDto conciliarPago(ConciliarPagoRequestDto request);
 }

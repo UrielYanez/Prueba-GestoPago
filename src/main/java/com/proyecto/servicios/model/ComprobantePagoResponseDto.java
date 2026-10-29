@@ -52,6 +52,9 @@ public class ComprobantePagoResponseDto {
     @Schema(description = "Mensaje devuelto por el proveedor", example = "Operacion realizada con exito")
     private String mensajeRespuesta;
 
+    @Schema(description = "Estado interno de la transacción (EN_PROCESO, EXITOSA, RECHAZADA, PENDIENTE_CONCILIACION)", example = "EXITOSA")
+    private String estadoTransaccion;
+
     @Schema(description = "Fecha y hora de la transacción")
     private LocalDateTime fechaTransaccion;
 }
