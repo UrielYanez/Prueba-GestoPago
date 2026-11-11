@@ -1,5 +1,6 @@
 package com.proyecto.servicios.service;
 
+import com.proyecto.servicios.entity.postgres.TransaccionPago;
 import java.math.BigDecimal;
 
 public interface EmailService {
@@ -18,5 +19,5 @@ public interface EmailService {
     /**
      * Envía el comprobante / ticket de pago exitoso al cliente (incluyendo PIN si es tarjeta de regalo).
      */
-    void enviarComprobantePago(String destinatario, String nombreCliente, String autorizacion, BigDecimal monto, String producto, String referencia, String upc, String pinGiftCard);
+    void enviarComprobantePago(String destinatario, String nombreCliente, TransaccionPago transaccion);
 }

@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -24,6 +25,7 @@ public class CuentaServiceImpl implements CuentaService {
 
     private final CuentaRepository cuentaRepository;
     private final com.proyecto.servicios.repositorys.postgres.ClienteRepository clienteRepository;
+    private final SecureRandom secureRandom = new SecureRandom();
 
     public CuentaServiceImpl(CuentaRepository cuentaRepository, com.proyecto.servicios.repositorys.postgres.ClienteRepository clienteRepository) {
         this.cuentaRepository = cuentaRepository;
@@ -84,9 +86,9 @@ public class CuentaServiceImpl implements CuentaService {
             throw new BusinessRuleException("No se pueden crear cuentas para clientes inactivos.");
         }
 
-        String numeroCuentaUnico = String.format("%010d", (long) (Math.random() * 10000000000L));
+        String numeroCuentaUnico = generarNumeroCuentaAleatorio();
         while (cuentaRepository.findByNumeroCuenta(numeroCuentaUnico).isPresent()) {
-            numeroCuentaUnico = String.format("%010d", (long) (Math.random() * 10000000000L));
+            numeroCuentaUnico = generarNumeroCuentaAleatorio();
         }
 
         Cuenta cuenta = Cuenta.builder()
@@ -97,6 +99,10 @@ public class CuentaServiceImpl implements CuentaService {
                 .build();
 
         return mapearAResponse(cuentaRepository.save(cuenta));
+    }
+
+    private String generarNumeroCuentaAleatorio() {
+        return String.format("%010d", secureRandom.nextLong(10_000_000_000L));
     }
 
     @Override

@@ -3,6 +3,7 @@ package com.proyecto.servicios.entity.postgres;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Entity
 @Table(name = "usuarios")
@@ -12,6 +13,8 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Builder
 public class Usuario {
+
+    private static final ZoneId ZONA_MX = ZoneId.of("America/Mexico_City");
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -36,12 +39,12 @@ public class Usuario {
 
     @PrePersist
     protected void onCreate() {
-        fechaCreacion = LocalDateTime.now();
-        fechaActualizacion = LocalDateTime.now();
+        fechaCreacion = LocalDateTime.now(ZONA_MX);
+        fechaActualizacion = LocalDateTime.now(ZONA_MX);
     }
 
     @PreUpdate
     protected void onUpdate() {
-        fechaActualizacion = LocalDateTime.now();
+        fechaActualizacion = LocalDateTime.now(ZONA_MX);
     }
 }

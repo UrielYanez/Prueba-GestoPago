@@ -8,8 +8,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.security.Key;
+import java.time.Instant;
 import java.util.Base64;
-import java.util.Date;
 import java.util.function.Function;
 
 @Component
@@ -26,12 +26,14 @@ public class JwtUtil {
         return Keys.hmacShaKeyFor(keyBytes);
     }
 
-    // Genera un token JWT para el correo dado
+    // Genera un token JWT para el correo dado usando java.time.Instant (RFC 7519 epoch seconds)
     public String generarToken(String correo) {
+        Instant ahora = Instant.now();
+        Instant expiracion = ahora.plusMillis(expirationMs);
         return Jwts.builder()
                 .setSubject(correo)
-                .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + expirationMs))
+                .claim(Claims.ISSUED_AT, ahora.getEpochSecond())
+                .claim(Claims.EXPIRATION, expiracion.getEpochSecond())
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
@@ -48,7 +50,8 @@ public class JwtUtil {
     }
 
     private boolean estaExpirado(String token) {
-        return extraerClaim(token, Claims::getExpiration).before(new Date());
+        Number expEpochSeconds = extraerClaim(token, claims -> claims.get(Claims.EXPIRATION, Number.class));
+        return expEpochSeconds == null || Instant.ofEpochSecond(expEpochSeconds.longValue()).isBefore(Instant.now());
     }
 
     private <T> T extraerClaim(String token, Function<Claims, T> resolver) {

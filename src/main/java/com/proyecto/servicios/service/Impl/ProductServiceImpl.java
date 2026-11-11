@@ -63,7 +63,9 @@ public class ProductServiceImpl implements ProductService {
             if (p.getPrecio() != null && !p.getPrecio().isBlank()) {
                 try {
                     precioParsed = Double.parseDouble(p.getPrecio().trim());
-                } catch (NumberFormatException ignored) {}
+                } catch (NumberFormatException ignored) {
+                    // Si el precio en el XML no es numérico, se mantiene como null
+                }
             }
             return CatProductJsonDto.builder()
                     .idProducto(p.getIdProducto())

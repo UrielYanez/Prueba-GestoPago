@@ -3,6 +3,7 @@ package com.proyecto.servicios.entity.postgres;
 import jakarta.persistence.*;
 import lombok.*;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Entity
 @Table(name = "transaccion_pines")
@@ -37,5 +38,5 @@ public class ConfirmacionPin {
 
     @Column(name = "fecha_creacion", nullable = false, updatable = false)
     @Builder.Default
-    private LocalDateTime fechaCreacion = LocalDateTime.now();
+    private LocalDateTime fechaCreacion = LocalDateTime.now(ZoneId.of("America/Mexico_City"));
 }

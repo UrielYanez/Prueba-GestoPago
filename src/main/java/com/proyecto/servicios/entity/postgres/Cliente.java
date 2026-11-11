@@ -71,7 +71,7 @@ public class Cliente {
     @PrePersist
     protected void onCreate() {
         if (fechaCreacion == null) {
-            fechaCreacion = java.time.LocalDateTime.now();
+            fechaCreacion = java.time.LocalDateTime.now(java.time.ZoneId.of("America/Mexico_City"));
         }
     }
 
