@@ -10,6 +10,10 @@ import com.proyecto.servicios.repositorys.postgres.ClienteRepository;
 import com.proyecto.servicios.repositorys.postgres.CuentaRepository;
 import com.proyecto.servicios.repositorys.postgres.UsuarioRepository;
 import com.proyecto.servicios.service.ClienteService;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -19,20 +23,26 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.security.SecureRandom;
 import java.time.LocalDate;
 import java.time.Period;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 @Service
 public class ClienteServiceImpl implements ClienteService {
+
+    private static final ZoneId ZONA_MX = ZoneId.of("America/Mexico_City");
 
     private final ClienteRepository clienteRepository;
     private final CuentaRepository cuentaRepository;
     private final UsuarioRepository usuarioRepository;
     private final CopomexClient copomexClient;
     private final PasswordEncoder passwordEncoder;
+    private final SecureRandom secureRandom = new SecureRandom();
 
     @org.springframework.beans.factory.annotation.Value("${copomex.api.token:pruebas}")
     private String copomexToken;
@@ -53,50 +63,17 @@ public class ClienteServiceImpl implements ClienteService {
     @Override
     @Transactional
     public ClienteResponseDto registrarCliente(ClienteRegistroDto dto) {
-        // 1. Validar Edad (Mayor de 18 años)
-        int edad = Period.between(dto.getFechaNacimiento(), LocalDate.now()).getYears();
-        if (edad < 18) {
-            throw new BusinessRuleException("El cliente debe ser mayor de edad (18 años o más).");
-        }
+        validarRequisitosRegistro(dto);
+        autocompletarDireccionConCopomex(dto);
 
-        // 2. Validar Duplicados
-        if (clienteRepository.findByCurp(dto.getCurp()).isPresent()) {
-            throw new DuplicatedResourceException("Ya existe un cliente registrado con la CURP: " + dto.getCurp());
-        }
-        if (clienteRepository.findByRfc(dto.getRfc()).isPresent()) {
-            throw new DuplicatedResourceException("Ya existe un cliente registrado con el RFC: " + dto.getRfc());
-        }
-        if (usuarioRepository.findByCorreo(dto.getCorreoElectronico()).isPresent()) {
-            throw new DuplicatedResourceException("Ya existe un usuario registrado con el correo: " + dto.getCorreoElectronico());
-        }
-
-        // 3. Autocompletar con Copomex si no se enviaron datos completos de dirección
-        if (dto.getColonia() == null || dto.getColonia().isBlank() ||
-            dto.getMunicipio() == null || dto.getMunicipio().isBlank() ||
-            dto.getEstado() == null || dto.getEstado().isBlank()) {
-            try {
-                List<CopomexResponseDto> copomexData = copomexClient.getInfoByCp(dto.getCodigoPostal(), copomexToken);
-                if (copomexData != null && !copomexData.isEmpty()) {
-                    CopomexResponseDto firstMatch = copomexData.get(0);
-                    if (!firstMatch.isError()) {
-                        if (dto.getColonia() == null || dto.getColonia().isBlank()) dto.setColonia(firstMatch.getResponse().getAsentamiento());
-                        if (dto.getMunicipio() == null || dto.getMunicipio().isBlank()) dto.setMunicipio(firstMatch.getResponse().getMunicipio());
-                        if (dto.getEstado() == null || dto.getEstado().isBlank()) dto.setEstado(firstMatch.getResponse().getEstado());
-                    }
-                }
-            } catch (Exception ignored) {
-                // Si la API externa no responde, no interrumpimos el registro
-            }
-        }
-
-        // 4. Mapear Usuario (con contraseña encriptada)
+        // Mapear Usuario (con contraseña encriptada)
         Usuario usuario = Usuario.builder()
                 .correo(dto.getCorreoElectronico())
                 .password(passwordEncoder.encode(dto.getPassword()))
                 .activo(true)
                 .build();
 
-        // 5. Mapear Domicilio
+        // Mapear Domicilio
         Domicilio domicilio = Domicilio.builder()
                 .calle(dto.getCalle())
                 .numeroExterior(dto.getNumeroExterior())
@@ -108,7 +85,7 @@ public class ClienteServiceImpl implements ClienteService {
                 .pais(dto.getPais())
                 .build();
 
-        // 6. Mapear Cliente
+        // Mapear Cliente
         Cliente cliente = Cliente.builder()
                 .nombre(dto.getNombre())
                 .segundoNombre(dto.getSegundoNombre())
@@ -134,7 +111,7 @@ public class ClienteServiceImpl implements ClienteService {
         usuario.setCliente(cliente);
         cliente = clienteRepository.save(cliente);
 
-        // 7. Crear Cuenta Bancaria con número único de 10 dígitos
+        // Crear Cuenta Bancaria con número único de 10 dígitos
         String numeroCuentaUnico = generarNumeroCuentaUnico();
         Cuenta cuenta = Cuenta.builder()
                 .numeroCuenta(numeroCuentaUnico)
@@ -147,57 +124,68 @@ public class ClienteServiceImpl implements ClienteService {
         return mapearAResponse(cliente);
     }
 
+    private void validarRequisitosRegistro(ClienteRegistroDto dto) {
+        int edad = Period.between(dto.getFechaNacimiento(), LocalDate.now(ZONA_MX)).getYears();
+        if (edad < 18) {
+            throw new BusinessRuleException("El cliente debe ser mayor de edad (18 años o más).");
+        }
+        if (clienteRepository.findByCurp(dto.getCurp()).isPresent()) {
+            throw new DuplicatedResourceException("Ya existe un cliente registrado con la CURP: " + dto.getCurp());
+        }
+        if (clienteRepository.findByRfc(dto.getRfc()).isPresent()) {
+            throw new DuplicatedResourceException("Ya existe un cliente registrado con el RFC: " + dto.getRfc());
+        }
+        if (usuarioRepository.findByCorreo(dto.getCorreoElectronico()).isPresent()) {
+            throw new DuplicatedResourceException("Ya existe un usuario registrado con el correo: " + dto.getCorreoElectronico());
+        }
+    }
+
+    private void autocompletarDireccionConCopomex(ClienteRegistroDto dto) {
+        if (!requiereAutocompletarDireccion(dto)) {
+            return;
+        }
+        try {
+            List<CopomexResponseDto> copomexData = copomexClient.getInfoByCp(dto.getCodigoPostal(), copomexToken);
+            if (copomexData != null && !copomexData.isEmpty()) {
+                aplicarDatosCopomexSiValido(dto, copomexData.get(0));
+            }
+        } catch (Exception ignored) {
+            // Si la API externa no responde, no interrumpimos el registro
+        }
+    }
+
+    private boolean requiereAutocompletarDireccion(ClienteRegistroDto dto) {
+        return esTextoVacio(dto.getColonia()) || esTextoVacio(dto.getMunicipio()) || esTextoVacio(dto.getEstado());
+    }
+
+    private void aplicarDatosCopomexSiValido(ClienteRegistroDto dto, CopomexResponseDto match) {
+        if (match.isError() || match.getResponse() == null) {
+            return;
+        }
+        CopomexInfoResponse info = match.getResponse();
+        if (esTextoVacio(dto.getColonia())) {
+            dto.setColonia(info.getAsentamiento());
+        }
+        if (esTextoVacio(dto.getMunicipio())) {
+            dto.setMunicipio(info.getMunicipio());
+        }
+        if (esTextoVacio(dto.getEstado())) {
+            dto.setEstado(info.getEstado());
+        }
+    }
+
+    private boolean esTextoVacio(String valor) {
+        return valor == null || valor.isBlank();
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // ÚNICO ENDPOINT DE BÚSQUEDA Y CONSULTA DINÁMICA (Paginada vía @RequestBody)
     // ─────────────────────────────────────────────────────────────────────────
     @Override
     @Transactional(readOnly = true)
     public PaginatedResponse<ClienteResponseDto> buscar(ClienteBusquedaRequestDto dto) {
-        Specification<Cliente> spec = (root, query, cb) -> {
-            List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
+        Specification<Cliente> spec = (root, query, cb) -> construirPredicadosBusqueda(dto, root, cb);
 
-            if (dto.getId() != null) {
-                predicates.add(cb.equal(root.get("id"), dto.getId()));
-            }
-            if (dto.getNombre() != null && !dto.getNombre().isBlank()) {
-                predicates.add(cb.like(cb.lower(root.get("nombre")), "%" + dto.getNombre().toLowerCase() + "%"));
-            }
-            if (dto.getSegundoNombre() != null && !dto.getSegundoNombre().isBlank()) {
-                predicates.add(cb.like(cb.lower(root.get("segundoNombre")), "%" + dto.getSegundoNombre().toLowerCase() + "%"));
-            }
-            if (dto.getApellidoPaterno() != null && !dto.getApellidoPaterno().isBlank()) {
-                predicates.add(cb.like(cb.lower(root.get("apellidoPaterno")), "%" + dto.getApellidoPaterno().toLowerCase() + "%"));
-            }
-            if (dto.getApellidoMaterno() != null && !dto.getApellidoMaterno().isBlank()) {
-                predicates.add(cb.like(cb.lower(root.get("apellidoMaterno")), "%" + dto.getApellidoMaterno().toLowerCase() + "%"));
-            }
-            if (dto.getCurp() != null && !dto.getCurp().isBlank()) {
-                predicates.add(cb.like(cb.upper(root.get("curp")), dto.getCurp().toUpperCase() + "%"));
-            }
-            if (dto.getRfc() != null && !dto.getRfc().isBlank()) {
-                predicates.add(cb.like(cb.upper(root.get("rfc")), dto.getRfc().toUpperCase() + "%"));
-            }
-            if (dto.getCorreo() != null && !dto.getCorreo().isBlank()) {
-                predicates.add(cb.like(cb.lower(root.get("correoElectronico")), "%" + dto.getCorreo().toLowerCase() + "%"));
-            }
-            if (dto.getActivo() != null) {
-                predicates.add(cb.equal(root.get("activo"), dto.getActivo()));
-            }
-            if (dto.getFechaInicio() != null) {
-                predicates.add(cb.greaterThanOrEqualTo(root.get("fechaCreacion"), dto.getFechaInicio().atStartOfDay()));
-            }
-            if (dto.getFechaFin() != null) {
-                predicates.add(cb.lessThanOrEqualTo(root.get("fechaCreacion"), dto.getFechaFin().atTime(23, 59, 59)));
-            }
-            if (dto.getNumeroCuenta() != null && !dto.getNumeroCuenta().isBlank()) {
-                jakarta.persistence.criteria.Join<Cliente, Cuenta> cuentaJoin = root.join("cuentas");
-                predicates.add(cb.equal(cuentaJoin.get("numeroCuenta"), dto.getNumeroCuenta()));
-            }
-
-            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
-        };
-
-        // Paginación flexible (valores por defecto 0 y 10)
         int page = (dto.getPage() != null && dto.getPage() >= 0) ? dto.getPage() : 0;
         int size = (dto.getSize() != null && dto.getSize() > 0) ? dto.getSize() : 10;
         Pageable pageable = PageRequest.of(page, size);
@@ -223,6 +211,56 @@ public class ClienteServiceImpl implements ClienteService {
                 .build();
     }
 
+    private Predicate construirPredicadosBusqueda(ClienteBusquedaRequestDto dto, Root<Cliente> root, CriteriaBuilder cb) {
+        List<Predicate> predicates = new ArrayList<>();
+        agregarFiltroIgual(predicates, cb, root, "id", dto.getId());
+        agregarFiltroIgual(predicates, cb, root, "activo", dto.getActivo());
+        agregarFiltroContieneLower(predicates, cb, root, "nombre", dto.getNombre());
+        agregarFiltroContieneLower(predicates, cb, root, "segundoNombre", dto.getSegundoNombre());
+        agregarFiltroContieneLower(predicates, cb, root, "apellidoPaterno", dto.getApellidoPaterno());
+        agregarFiltroContieneLower(predicates, cb, root, "apellidoMaterno", dto.getApellidoMaterno());
+        agregarFiltroContieneLower(predicates, cb, root, "correoElectronico", dto.getCorreo());
+        agregarFiltroPrefijoUpper(predicates, cb, root, "curp", dto.getCurp());
+        agregarFiltroPrefijoUpper(predicates, cb, root, "rfc", dto.getRfc());
+        agregarFiltroRangoFechas(predicates, cb, root, dto);
+        agregarFiltroNumeroCuenta(predicates, cb, root, dto.getNumeroCuenta());
+        return cb.and(predicates.toArray(new Predicate[0]));
+    }
+
+    private void agregarFiltroIgual(List<Predicate> predicates, CriteriaBuilder cb, Root<Cliente> root, String campo, Object valor) {
+        if (valor != null) {
+            predicates.add(cb.equal(root.get(campo), valor));
+        }
+    }
+
+    private void agregarFiltroContieneLower(List<Predicate> predicates, CriteriaBuilder cb, Root<Cliente> root, String campo, String valor) {
+        if (!esTextoVacio(valor)) {
+            predicates.add(cb.like(cb.lower(root.get(campo)), "%" + valor.toLowerCase() + "%"));
+        }
+    }
+
+    private void agregarFiltroPrefijoUpper(List<Predicate> predicates, CriteriaBuilder cb, Root<Cliente> root, String campo, String valor) {
+        if (!esTextoVacio(valor)) {
+            predicates.add(cb.like(cb.upper(root.get(campo)), valor.toUpperCase() + "%"));
+        }
+    }
+
+    private void agregarFiltroRangoFechas(List<Predicate> predicates, CriteriaBuilder cb, Root<Cliente> root, ClienteBusquedaRequestDto dto) {
+        if (dto.getFechaInicio() != null) {
+            predicates.add(cb.greaterThanOrEqualTo(root.get("fechaCreacion"), dto.getFechaInicio().atStartOfDay()));
+        }
+        if (dto.getFechaFin() != null) {
+            predicates.add(cb.lessThanOrEqualTo(root.get("fechaCreacion"), dto.getFechaFin().atTime(23, 59, 59)));
+        }
+    }
+
+    private void agregarFiltroNumeroCuenta(List<Predicate> predicates, CriteriaBuilder cb, Root<Cliente> root, String numeroCuenta) {
+        if (!esTextoVacio(numeroCuenta)) {
+            Join<Cliente, Cuenta> cuentaJoin = root.join("cuentas");
+            predicates.add(cb.equal(cuentaJoin.get("numeroCuenta"), numeroCuenta));
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // ACTUALIZACIÓN PARCIAL (Vía @RequestBody)
     // ─────────────────────────────────────────────────────────────────────────
@@ -236,31 +274,42 @@ public class ClienteServiceImpl implements ClienteService {
             throw new BusinessRuleException("No se puede modificar un cliente inactivo.");
         }
 
-        // Modificar solo campos permitidos que no sean nulos
-        if (dto.getNombre() != null)            cliente.setNombre(dto.getNombre());
-        if (dto.getSegundoNombre() != null)     cliente.setSegundoNombre(dto.getSegundoNombre());
-        if (dto.getApellidoPaterno() != null)   cliente.setApellidoPaterno(dto.getApellidoPaterno());
-        if (dto.getApellidoMaterno() != null)   cliente.setApellidoMaterno(dto.getApellidoMaterno());
-        if (dto.getCorreoElectronico() != null) cliente.setCorreoElectronico(dto.getCorreoElectronico());
-        if (dto.getTelefonoMovil() != null)     cliente.setTelefonoMovil(dto.getTelefonoMovil());
-        if (dto.getTelefonoAlternativo() != null) cliente.setTelefonoAlternativo(dto.getTelefonoAlternativo());
-        if (dto.getOcupacion() != null)         cliente.setOcupacion(dto.getOcupacion());
-        if (dto.getEmpresa() != null)           cliente.setEmpresa(dto.getEmpresa());
-        if (dto.getIngresoMensual() != null)    cliente.setIngresoMensual(dto.getIngresoMensual());
-
-        // Actualizar domicilio si viene
-        if (cliente.getDomicilio() != null) {
-            Domicilio dom = cliente.getDomicilio();
-            if (dto.getCalle() != null)          dom.setCalle(dto.getCalle());
-            if (dto.getNumeroExterior() != null) dom.setNumeroExterior(dto.getNumeroExterior());
-            if (dto.getNumeroInterior() != null) dom.setNumeroInterior(dto.getNumeroInterior());
-            if (dto.getColonia() != null)        dom.setColonia(dto.getColonia());
-            if (dto.getMunicipio() != null)      dom.setMunicipio(dto.getMunicipio());
-            if (dto.getEstado() != null)         dom.setEstado(dto.getEstado());
-            if (dto.getCodigoPostal() != null)   dom.setCodigoPostal(dto.getCodigoPostal());
-        }
+        actualizarDatosPersonales(cliente, dto);
+        actualizarDatosDomicilio(cliente.getDomicilio(), dto);
 
         return mapearAResponse(clienteRepository.save(cliente));
+    }
+
+    private void actualizarDatosPersonales(Cliente cliente, ClienteActualizacionDto dto) {
+        asignarSiNoNulo(dto.getNombre(), cliente::setNombre);
+        asignarSiNoNulo(dto.getSegundoNombre(), cliente::setSegundoNombre);
+        asignarSiNoNulo(dto.getApellidoPaterno(), cliente::setApellidoPaterno);
+        asignarSiNoNulo(dto.getApellidoMaterno(), cliente::setApellidoMaterno);
+        asignarSiNoNulo(dto.getCorreoElectronico(), cliente::setCorreoElectronico);
+        asignarSiNoNulo(dto.getTelefonoMovil(), cliente::setTelefonoMovil);
+        asignarSiNoNulo(dto.getTelefonoAlternativo(), cliente::setTelefonoAlternativo);
+        asignarSiNoNulo(dto.getOcupacion(), cliente::setOcupacion);
+        asignarSiNoNulo(dto.getEmpresa(), cliente::setEmpresa);
+        asignarSiNoNulo(dto.getIngresoMensual(), cliente::setIngresoMensual);
+    }
+
+    private void actualizarDatosDomicilio(Domicilio dom, ClienteActualizacionDto dto) {
+        if (dom == null) {
+            return;
+        }
+        asignarSiNoNulo(dto.getCalle(), dom::setCalle);
+        asignarSiNoNulo(dto.getNumeroExterior(), dom::setNumeroExterior);
+        asignarSiNoNulo(dto.getNumeroInterior(), dom::setNumeroInterior);
+        asignarSiNoNulo(dto.getColonia(), dom::setColonia);
+        asignarSiNoNulo(dto.getMunicipio(), dom::setMunicipio);
+        asignarSiNoNulo(dto.getEstado(), dom::setEstado);
+        asignarSiNoNulo(dto.getCodigoPostal(), dom::setCodigoPostal);
+    }
+
+    private <T> void asignarSiNoNulo(T valor, Consumer<T> setter) {
+        if (valor != null) {
+            setter.accept(valor);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -370,9 +419,9 @@ public class ClienteServiceImpl implements ClienteService {
     }
 
     private String generarNumeroCuentaUnico() {
-        String cuentaStr = String.format("%010d", (long) (Math.random() * 10000000000L));
+        String cuentaStr = String.format("%010d", secureRandom.nextLong(10_000_000_000L));
         while (cuentaRepository.findByNumeroCuenta(cuentaStr).isPresent()) {
-            cuentaStr = String.format("%010d", (long) (Math.random() * 10000000000L));
+            cuentaStr = String.format("%010d", secureRandom.nextLong(10_000_000_000L));
         }
         return cuentaStr;
     }

@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Entity
 @Table(name = "transacciones_pago")
@@ -75,5 +76,5 @@ public class TransaccionPago {
 
     @Column(name = "fecha_transaccion", nullable = false, updatable = false)
     @Builder.Default
-    private LocalDateTime fechaTransaccion = LocalDateTime.now();
+    private LocalDateTime fechaTransaccion = LocalDateTime.now(ZoneId.of("America/Mexico_City"));
 }

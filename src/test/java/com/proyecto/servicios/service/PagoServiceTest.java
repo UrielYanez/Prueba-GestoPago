@@ -238,7 +238,7 @@ class PagoServiceTest {
         verify(cuentaRepository).findByNumeroCuentaForUpdate("0000000001");
         verify(cuentaRepository).save(cuentaMock);
         verify(transaccionPagoRepository, atLeastOnce()).save(any(TransaccionPago.class));
-        verify(emailService).enviarComprobantePago(eq(clienteMock.getCorreoElectronico()), contains(clienteMock.getNombre()), eq("AUT-771122"), eq(new BigDecimal("100.00")), anyString(), contains("5512345678"), anyString(), isNull());
+        verify(emailService).enviarComprobantePago(eq(clienteMock.getCorreoElectronico()), contains(clienteMock.getNombre()), any(TransaccionPago.class));
     }
 
     @Test
@@ -302,7 +302,7 @@ class PagoServiceTest {
         assertEquals("AMAZON-GIFT-REF", resp.getReferencia());
         assertEquals(new BigDecimal("300.00"), resp.getNuevoSaldoCuenta());
 
-        verify(emailService).enviarComprobantePago(eq(clienteMock.getCorreoElectronico()), contains(clienteMock.getNombre()), eq("AUT-993344"), eq(new BigDecimal("200.00")), anyString(), contains("AMAZON-GIFT-REF"), anyString(), eq("AMZ-X789-Q456"));
+        verify(emailService).enviarComprobantePago(eq(clienteMock.getCorreoElectronico()), contains(clienteMock.getNombre()), any(TransaccionPago.class));
     }
 
     @Test

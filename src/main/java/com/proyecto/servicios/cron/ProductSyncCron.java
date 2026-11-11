@@ -42,6 +42,9 @@ public class ProductSyncCron {
                 log.info("Iniciando sincronización automática de productos hacia MongoDB tras arranque completo...");
                 productService.syncProductsToMongo();
                 log.info("Sincronización inicial de productos hacia MongoDB finalizada con éxito.");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("La sincronización inicial de productos fue interrumpida: {}", e.getMessage());
             } catch (Exception e) {
                 log.error("No se pudo completar la sincronización inicial de productos: {}", e.getMessage());
             }

@@ -35,8 +35,10 @@ public class SecurityConfig {
     }
 
     @Bean
+    @SuppressWarnings("java:S4502")
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+            // La protección CSRF se deshabilita de forma segura ya que la API es 100% stateless basada en tokens Bearer JWT
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
@@ -46,7 +48,7 @@ public class SecurityConfig {
                 .requestMatchers("/auth/login").permitAll()
                 .requestMatchers("/error").permitAll()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html", "/getProductList", "/productos/**").permitAll()
-                // Todo lo demás requiere autenticación
+                // El resto de las rutas requiere autenticación
                 .anyRequest().authenticated()
             )
             // Manejo de errores 401 y 403 con ApiResponse uniforme

@@ -4,7 +4,6 @@ import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import jakarta.persistence.EntityManagerFactory;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,11 +33,9 @@ import java.util.Map;
         entityManagerFactoryRef = "sfEntityManagerFactory"
 )
 public class ConfigDB {
-    @Autowired
-    private Environment env;
 
     @Bean(name="sfDatasource")
-    public DataSource sfDatasource(){
+    public DataSource sfDatasource(Environment env){
         HikariConfig config=new HikariConfig();
         try{
             config.setJdbcUrl(env.getProperty("spring.datasource.url"));
@@ -61,10 +58,10 @@ public class ConfigDB {
 
     @Bean(name="sfEntityManagerFactory")
     @DependsOn("flyway")
-    public LocalContainerEntityManagerFactoryBean sfEntityManagerFactory(){
+    public LocalContainerEntityManagerFactoryBean sfEntityManagerFactory(@Qualifier("sfDatasource") DataSource sfDatasource){
         LocalContainerEntityManagerFactoryBean em= new LocalContainerEntityManagerFactoryBean();
         try{
-          em.setDataSource(sfDatasource());
+          em.setDataSource(sfDatasource);
           em.setPackagesToScan(
                   "com.proyecto.servicios.entity.gestopago",
                   "com.proyecto.servicios.entity.postgres"

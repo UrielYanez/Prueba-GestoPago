@@ -1,5 +1,6 @@
 package com.proyecto.servicios.service.Impl;
 
+import com.proyecto.servicios.entity.postgres.TransaccionPago;
 import com.proyecto.servicios.exception.BusinessRuleException;
 import com.proyecto.servicios.service.EmailService;
 import jakarta.mail.MessagingException;
@@ -13,12 +14,16 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.Year;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class EmailServiceImpl implements EmailService {
+
+    private static final ZoneId ZONA_MX = ZoneId.of("America/Mexico_City");
 
     private final JavaMailSender mailSender;
 
@@ -85,7 +90,7 @@ public class EmailServiceImpl implements EmailService {
                     pin,
                     producto != null ? producto : "Pago de servicio",
                     monto != null ? monto.toPlainString() : "0.00",
-                    java.time.Year.now().getValue()
+                    Year.now(ZONA_MX).getValue()
             );
 
             helper.setText(htmlContent, true);
@@ -99,7 +104,7 @@ public class EmailServiceImpl implements EmailService {
     }
 
     @Override
-    public void enviarComprobantePago(String destinatario, String nombreCliente, String autorizacion, BigDecimal monto, String producto, String referencia, String upc, String pinGiftCard) {
+    public void enviarComprobantePago(String destinatario, String nombreCliente, TransaccionPago tx) {
         log.info("Enviando comprobante de pago exitoso a: {}", destinatario);
         try {
             MimeMessage message = mailSender.createMimeMessage();
@@ -109,7 +114,13 @@ public class EmailServiceImpl implements EmailService {
             helper.setTo(destinatario);
             helper.setSubject("Comprobante de Pago Exitoso - GestoPago");
 
-            String fechaHora = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"));
+            String fechaHora = LocalDateTime.now(ZONA_MX).format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"));
+            String pinGiftCard = tx.getPinGiftCard();
+            String autorizacion = tx.getNumAutorizacion();
+            String producto = "Producto ID: " + tx.getIdProducto();
+            String referencia = obtenerDetalleReferencia(tx);
+            String upc = tx.getUpc();
+            BigDecimal monto = tx.getMonto();
 
             String pinBoxHtml = "";
             if (pinGiftCard != null && !pinGiftCard.isBlank()) {
@@ -190,12 +201,12 @@ public class EmailServiceImpl implements EmailService {
                 .replace("{{nombreCliente}}", nombreCliente != null ? nombreCliente : "Cliente")
                 .replace("{{pinBoxHtml}}", pinBoxHtml)
                 .replace("{{autorizacion}}", autorizacion != null ? autorizacion : "N/A")
-                .replace("{{producto}}", producto != null ? producto : "Servicio")
-                .replace("{{referencia}}", referencia != null ? referencia : "N/A")
+                .replace("{{producto}}", producto)
+                .replace("{{referencia}}", referencia)
                 .replace("{{upc}}", upc != null ? upc : "N/A")
                 .replace("{{fechaHora}}", fechaHora)
                 .replace("{{monto}}", monto != null ? monto.toPlainString() : "0.00")
-                .replace("{{anio}}", String.valueOf(java.time.Year.now().getValue()));
+                .replace("{{anio}}", String.valueOf(Year.now(ZONA_MX).getValue()));
 
             helper.setText(htmlContent, true);
             mailSender.send(message);
@@ -204,5 +215,15 @@ public class EmailServiceImpl implements EmailService {
         } catch (MessagingException | org.springframework.mail.MailException e) {
             log.warn("No se pudo enviar el comprobante de pago por correo a {}: {}", destinatario, e.getMessage());
         }
+    }
+
+    private String obtenerDetalleReferencia(TransaccionPago tx) {
+        if (Boolean.TRUE.equals(tx.getBandera())) {
+            return "Teléfono: " + tx.getTelefono();
+        }
+        if (tx.getReferencia() != null && !tx.getReferencia().isBlank()) {
+            return "Referencia: " + tx.getReferencia();
+        }
+        return "Tarjeta de Regalo / PIN Digital";
     }
 }

@@ -46,6 +46,7 @@ import java.math.BigDecimal;
 import java.net.SocketTimeoutException;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
@@ -58,6 +59,7 @@ import java.util.function.Supplier;
 @Slf4j
 public class PagoServiceImpl implements PagoService {
 
+    private static final ZoneId ZONA_MX = ZoneId.of("America/Mexico_City");
     private static final BigDecimal MONTO_MINIMO_SERVICIO_VARIABLE = new BigDecimal("5.00");
     private static final BigDecimal MONTO_MAXIMO_SERVICIO_VARIABLE = new BigDecimal("25000.00");
     private static final int VENTANA_IDEMPOTENCIA_SEGUNDOS = 60;
@@ -72,9 +74,7 @@ public class PagoServiceImpl implements PagoService {
     private final AesEncryptionUtil aesEncryptionUtil;
     private final GestoPagoTransactionClient transactionClient;
     private final GestoPagoTokenService gestoPagoTokenService;
-
-    @Autowired(required = false)
-    private UsuarioRepository usuarioRepository;
+    private final UsuarioRepository usuarioRepository;
 
     private TransactionTemplate transactionTemplate;
 
@@ -130,10 +130,10 @@ public class PagoServiceImpl implements PagoService {
         ConfirmacionPin nuevoPin = ConfirmacionPin.builder()
                 .cuenta(cuenta)
                 .pinHash(passwordEncoder.encode(pinTexto))
-                .fechaExpiracion(LocalDateTime.now().plusMinutes(5))
+                .fechaExpiracion(LocalDateTime.now(ZONA_MX).plusMinutes(5))
                 .utilizado(false)
                 .intentos(0)
-                .fechaCreacion(LocalDateTime.now())
+                .fechaCreacion(LocalDateTime.now(ZONA_MX))
                 .build();
 
         confirmacionPinRepository.save(nuevoPin);
@@ -154,21 +154,59 @@ public class PagoServiceImpl implements PagoService {
         log.info("Iniciando procesamiento de pago para cuenta: {}, producto: {}, servicio: {}, monto: {}",
                 request.getNumeroCuenta(), request.getIdProducto(), request.getIdServicio(), request.getPrecio());
 
-        // 1. Validar Bandera e IDs numéricos
+        validarBanderaObligatoria(request);
+        int idProductoInt = parsearIdentificadorNumerico(request.getIdProducto());
+        int idServicioInt = parsearIdentificadorNumerico(request.getIdServicio());
+
+        boolean isGiftCard = validarCatalogoYDeterminarGiftCard(request);
+
+        String upc = "UPC" + System.currentTimeMillis();
+        String horaLocal = LocalDateTime.now(ZONA_MX).format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+        String unidad = obtenerUnidadDistribuidor(request.getDistribuidor());
+
+        GestoPagoTxPayload payload = construirPayloadPago(
+                request, idProductoInt, idServicioInt, isGiftCard, horaLocal, upc, unidad
+        );
+
+        TransaccionPago txReservada = ejecutarEnTransaccion(() -> reservarSaldoYRegistrarEnProceso(
+                request, upc, horaLocal, unidad
+        ));
+
+        String signed = aesEncryptionUtil.encryptPayload(payload);
+        String random = String.valueOf(System.currentTimeMillis());
+        GestoPagoToken tokenEntity = obtenerTokenGestoPago();
+
+        String xmlResponse = invocarSendTxConManejoDeErrores(
+                request, txReservada, upc, random, signed, tokenEntity.getToken()
+        );
+
+        GestoPagoTxResponseXml responseXml = parsearXmlOCompensar(request, txReservada, xmlResponse);
+
+        log.info("Resultado de GestoPago para UPC {}. Código: {}, Mensaje: {}, ID_TX: {}, PIN GiftCard: {}",
+                upc,
+                responseXml.getCodigo(),
+                responseXml.getTexto(),
+                responseXml.getIdTx(),
+                responseXml.getPinGiftCard() != null ? "[PROTEGIDO]" : "N/A");
+
+        return resolverResultadoSendTx(request, txReservada, upc, responseXml);
+    }
+
+    private void validarBanderaObligatoria(ProcesarPagoRequestDto request) {
         if (request.getBandera() == null) {
             throw new BusinessRuleException("La bandera de tipo de operación es obligatoria (true para Recarga, false para Servicio/Tarjeta de Regalo).");
         }
+    }
 
-        Integer idProductoInt;
-        Integer idServicioInt;
+    private int parsearIdentificadorNumerico(String valor) {
         try {
-            idProductoInt = Integer.parseInt(request.getIdProducto().trim());
-            idServicioInt = Integer.parseInt(request.getIdServicio().trim());
+            return Integer.parseInt(valor.trim());
         } catch (Exception e) {
-            throw new BusinessRuleException("Los campos 'idProducto' e 'idServicio' deben ser identificadores numéricos válidos.");
+            throw new BusinessRuleException("Los campos 'idProducto' e 'idServicio' deben ser identificadores numéricos válidos.", e);
         }
+    }
 
-        // 2. Validar Catálogo en MongoDB y Anti-Manipulación de Precios
+    private boolean validarCatalogoYDeterminarGiftCard(ProcesarPagoRequestDto request) {
         Optional<CatProductMongo> productOpt = catProductMongoRepository.findByIdProducto(request.getIdProducto().trim());
         if (productOpt.isPresent()) {
             validarProductoYPrecioContraCatalogo(productOpt.get(), request);
@@ -176,11 +214,24 @@ public class PagoServiceImpl implements PagoService {
             throw new ResourceNotFoundException("El producto con ID '" + request.getIdProducto() + "' no existe en el catálogo autorizado de GestoPago.");
         }
 
-        boolean isGiftCard = productOpt
+        return productOpt
                 .map(p -> "10".equals(p.getIdCatTipoServicio()) || "11".equals(p.getIdCatTipoServicio()))
                 .orElse(false);
+    }
 
-        // 3. Determinar parámetros para GestoPago según tipo de producto
+    private String obtenerUnidadDistribuidor(String distribuidor) {
+        return (distribuidor != null && !distribuidor.isBlank()) ? distribuidor.trim() : defaultUnidad;
+    }
+
+    private GestoPagoTxPayload construirPayloadPago(
+            ProcesarPagoRequestDto request,
+            int idProductoInt,
+            int idServicioInt,
+            boolean isGiftCard,
+            String horaLocal,
+            String upc,
+            String unidad
+    ) {
         String telefonoGestoPago;
         String referenciaGestoPago;
         BigDecimal montoGestoPago;
@@ -209,19 +260,7 @@ public class PagoServiceImpl implements PagoService {
             montoGestoPago = request.getPrecio();
         }
 
-        String upc = "UPC" + System.currentTimeMillis();
-        String horaLocal = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-        String unidad = (request.getDistribuidor() != null && !request.getDistribuidor().isBlank())
-                ? request.getDistribuidor().trim()
-                : defaultUnidad;
-
-        // 4. FASE 1 TRANSACCIONAL: Bloqueo Pesimista de Cuenta, Validación de Titularidad, Idempotencia, PIN OTP y Reserva de Saldo
-        TransaccionPago txReservada = ejecutarEnTransaccion(() -> reservarSaldoYRegistrarEnProceso(
-                request, upc, horaLocal, unidad
-        ));
-
-        // 5. Construir y cifrar Payload para GestoPago
-        GestoPagoTxPayload payload = GestoPagoTxPayload.builder()
+        return GestoPagoTxPayload.builder()
                 .idProducto(idProductoInt)
                 .idServicio(idServicioInt)
                 .referencia(referenciaGestoPago)
@@ -231,24 +270,21 @@ public class PagoServiceImpl implements PagoService {
                 .upc(upc)
                 .unidad(unidad)
                 .build();
+    }
 
-        String signed = aesEncryptionUtil.encryptPayload(payload);
-        String random = String.valueOf(System.currentTimeMillis());
-
-        // 6. Obtener Token Bearer de GestoPago
-        GestoPagoToken tokenEntity = obtenerTokenGestoPago();
-
-        // 7. FASE 2: Invocar al proveedor externo (sendTx.do) con control de Timeout
+    private String invocarSendTxConManejoDeErrores(
+            ProcesarPagoRequestDto request,
+            TransaccionPago txReservada,
+            String upc,
+            String random,
+            String signed,
+            String token
+    ) {
         log.info("Enviando transacción sendTx a GestoPago para UPC: {} (Bandera: {})", upc, request.getBandera());
-        String xmlResponse;
         try {
-            xmlResponse = transactionClient.sendTx(
-                    "Bearer " + tokenEntity.getToken(),
-                    apiKey,
-                    random,
-                    signed
-            );
+            String xmlResponse = transactionClient.sendTx("Bearer " + token, apiKey, random, signed);
             log.info("Respuesta XML recibida de GestoPago para UPC {}: {}", upc, sanitizarXmlParaLog(xmlResponse));
+            return xmlResponse;
         } catch (Exception e) {
             if (esExcepcionDeTimeout(e)) {
                 log.error("Timeout detectado en sendTx para UPC: {}. Marcando transacción como PENDIENTE_CONCILIACION sin reembolso prematuro.", upc);
@@ -271,13 +307,17 @@ public class PagoServiceImpl implements PagoService {
                     "ERR_COM",
                     "Error de comunicación con el proveedor"
             ));
-            throw new BusinessRuleException("Error al comunicarse con el proveedor de pagos: " + e.getMessage());
+            throw new BusinessRuleException("Error al comunicarse con el proveedor de pagos: " + e.getMessage(), e);
         }
+    }
 
-        // 8. Parsear Respuesta XML de GestoPago
-        GestoPagoTxResponseXml responseXml;
+    private GestoPagoTxResponseXml parsearXmlOCompensar(
+            ProcesarPagoRequestDto request,
+            TransaccionPago txReservada,
+            String xmlResponse
+    ) {
         try {
-            responseXml = parseResponseXml(xmlResponse);
+            return parseResponseXml(xmlResponse);
         } catch (BusinessRuleException ex) {
             ejecutarEnTransaccion(() -> compensarSaldoYRechazarTransaccion(
                     txReservada,
@@ -288,15 +328,14 @@ public class PagoServiceImpl implements PagoService {
             ));
             throw ex;
         }
+    }
 
-        log.info("Resultado de GestoPago para UPC {}. Código: {}, Mensaje: {}, ID_TX: {}, PIN GiftCard: {}",
-                upc,
-                responseXml.getCodigo(),
-                responseXml.getTexto(),
-                responseXml.getIdTx(),
-                responseXml.getPinGiftCard() != null ? "[PROTEGIDO]" : "N/A");
-
-        // 9. FASE 3: Resolución según código de GestoPago
+    private ComprobantePagoResponseDto resolverResultadoSendTx(
+            ProcesarPagoRequestDto request,
+            TransaccionPago txReservada,
+            String upc,
+            GestoPagoTxResponseXml responseXml
+    ) {
         if (responseXml.isTimeoutProveedor()) {
             log.warn("GestoPago reportó código 82 (Timeout) para UPC: {}. Pasando a PENDIENTE_CONCILIACION.", upc);
             ejecutarEnTransaccion(() -> marcarPendienteConciliacion(
@@ -322,12 +361,8 @@ public class PagoServiceImpl implements PagoService {
             throw new BusinessRuleException(mensajeUsuario);
         }
 
-        // 10. Confirmar transacción exitosa (Código 01)
         TransaccionPago savedTx = ejecutarEnTransaccion(() -> confirmarTransaccionExitosa(txReservada, responseXml));
-
-        // 11. Enviar comprobante por correo al titular
         enviarCorreoComprobanteSiAplica(savedTx);
-
         return construirComprobanteDto(savedTx);
     }
 
@@ -352,47 +387,7 @@ public class PagoServiceImpl implements PagoService {
             throw new BusinessRuleException("La transacción con UPC '" + upc + "' ya fue conciliada previamente como RECHAZADA y el saldo fue reintegrado a la cuenta.");
         }
 
-        // Reconstruir los mismos parámetros de sendTx.do para confirmTx.do
-        Optional<CatProductMongo> productOpt = catProductMongoRepository.findByIdProducto(transaccion.getIdProducto());
-        boolean isGiftCard = productOpt
-                .map(p -> "10".equals(p.getIdCatTipoServicio()) || "11".equals(p.getIdCatTipoServicio()))
-                .orElse(false);
-
-        String telefonoGestoPago;
-        String referenciaGestoPago;
-        BigDecimal montoGestoPago;
-
-        if (Boolean.TRUE.equals(transaccion.getBandera())) {
-            telefonoGestoPago = transaccion.getTelefono();
-            referenciaGestoPago = null;
-            montoGestoPago = null;
-        } else if (isGiftCard) {
-            telefonoGestoPago = "#1111111111";
-            referenciaGestoPago = null;
-            montoGestoPago = null;
-        } else {
-            referenciaGestoPago = transaccion.getReferencia();
-            telefonoGestoPago = (transaccion.getTelefono() != null && !transaccion.getTelefono().isBlank())
-                    ? transaccion.getTelefono().trim()
-                    : "1111111111";
-            montoGestoPago = transaccion.getMonto();
-        }
-
-        String horaLocal = (transaccion.getHoraLocal() != null && !transaccion.getHoraLocal().isBlank())
-                ? transaccion.getHoraLocal()
-                : transaccion.getFechaTransaccion().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
-
-        GestoPagoTxPayload payload = GestoPagoTxPayload.builder()
-                .idProducto(Integer.parseInt(transaccion.getIdProducto().trim()))
-                .idServicio(Integer.parseInt(transaccion.getIdServicio().trim()))
-                .referencia(referenciaGestoPago)
-                .telefono(telefonoGestoPago)
-                .montoPago(montoGestoPago)
-                .horaLocal(horaLocal)
-                .upc(transaccion.getUpc())
-                .unidad(transaccion.getDistribuidor())
-                .build();
-
+        GestoPagoTxPayload payload = construirPayloadConciliacion(transaccion);
         String signed = aesEncryptionUtil.encryptPayload(payload);
         String random = String.valueOf(System.currentTimeMillis());
         GestoPagoToken tokenEntity = obtenerTokenGestoPago();
@@ -439,6 +434,47 @@ public class PagoServiceImpl implements PagoService {
                 + responseXml.getTexto() + " (Código: " + responseXml.getCodigo() + ")");
     }
 
+    private GestoPagoTxPayload construirPayloadConciliacion(TransaccionPago transaccion) {
+        boolean isGiftCard = catProductMongoRepository.findByIdProducto(transaccion.getIdProducto())
+                .map(p -> "10".equals(p.getIdCatTipoServicio()) || "11".equals(p.getIdCatTipoServicio()))
+                .orElse(false);
+
+        String telefonoGestoPago;
+        String referenciaGestoPago;
+        BigDecimal montoGestoPago;
+
+        if (Boolean.TRUE.equals(transaccion.getBandera())) {
+            telefonoGestoPago = transaccion.getTelefono();
+            referenciaGestoPago = null;
+            montoGestoPago = null;
+        } else if (isGiftCard) {
+            telefonoGestoPago = "#1111111111";
+            referenciaGestoPago = null;
+            montoGestoPago = null;
+        } else {
+            referenciaGestoPago = transaccion.getReferencia();
+            telefonoGestoPago = (transaccion.getTelefono() != null && !transaccion.getTelefono().isBlank())
+                    ? transaccion.getTelefono().trim()
+                    : "1111111111";
+            montoGestoPago = transaccion.getMonto();
+        }
+
+        String horaLocal = (transaccion.getHoraLocal() != null && !transaccion.getHoraLocal().isBlank())
+                ? transaccion.getHoraLocal()
+                : transaccion.getFechaTransaccion().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+
+        return GestoPagoTxPayload.builder()
+                .idProducto(Integer.parseInt(transaccion.getIdProducto().trim()))
+                .idServicio(Integer.parseInt(transaccion.getIdServicio().trim()))
+                .referencia(referenciaGestoPago)
+                .telefono(telefonoGestoPago)
+                .montoPago(montoGestoPago)
+                .horaLocal(horaLocal)
+                .upc(transaccion.getUpc())
+                .unidad(transaccion.getDistribuidor())
+                .build();
+    }
+
     /**
      * Valida en el catálogo de MongoDB que el producto esté activo, que el idServicio coincida
      * y que el monto enviado no haya sido manipulado.
@@ -455,14 +491,22 @@ public class PagoServiceImpl implements PagoService {
             ));
         }
 
+        validarBanderaContraCategoria(catProduct, request.getBandera());
+        validarMontoContraCatalogo(catProduct, request.getPrecio());
+    }
+
+    private void validarBanderaContraCategoria(CatProductMongo catProduct, Boolean bandera) {
         String catTipo = catProduct.getIdCatTipoServicio();
-        if (Boolean.TRUE.equals(request.getBandera()) && ("2".equals(catProduct.getTipoFront()) || "10".equals(catTipo) || "11".equals(catTipo))) {
+        boolean noEsRecarga = "2".equals(catProduct.getTipoFront()) || "10".equals(catTipo) || "11".equals(catTipo);
+        if (Boolean.TRUE.equals(bandera) && noEsRecarga) {
             throw new BusinessRuleException("El producto '" + catProduct.getProducto() + "' no corresponde a una recarga telefónica (bandera=true).");
         }
-        if (Boolean.FALSE.equals(request.getBandera()) && catTipo != null && CATEGORIAS_RECARGA_TELEFONICA.contains(catTipo.trim())) {
+        if (Boolean.FALSE.equals(bandera) && catTipo != null && CATEGORIAS_RECARGA_TELEFONICA.contains(catTipo.trim())) {
             throw new BusinessRuleException("El producto '" + catProduct.getProducto() + "' es una recarga telefónica y debe enviarse con bandera=true.");
         }
+    }
 
+    private void validarMontoContraCatalogo(CatProductMongo catProduct, BigDecimal precioSolicitado) {
         boolean esMontoVariable = "2".equals(catProduct.getTipoFront())
                 || (catProduct.getPrecio() != null && Double.compare(catProduct.getPrecio(), 0.0) == 0);
 
@@ -470,18 +514,21 @@ public class PagoServiceImpl implements PagoService {
             BigDecimal minPermitido = (catProduct.getPrecio() != null && catProduct.getPrecio() > 0)
                     ? BigDecimal.valueOf(catProduct.getPrecio())
                     : MONTO_MINIMO_SERVICIO_VARIABLE;
-            if (request.getPrecio().compareTo(minPermitido) < 0 || request.getPrecio().compareTo(MONTO_MAXIMO_SERVICIO_VARIABLE) > 0) {
+            if (precioSolicitado.compareTo(minPermitido) < 0 || precioSolicitado.compareTo(MONTO_MAXIMO_SERVICIO_VARIABLE) > 0) {
                 throw new BusinessRuleException(String.format(
                         "El monto solicitado ($%.2f) para el servicio '%s' está fuera de los límites permitidos ($%.2f - $%.2f).",
-                        request.getPrecio(), catProduct.getProducto(), minPermitido, MONTO_MAXIMO_SERVICIO_VARIABLE
+                        precioSolicitado, catProduct.getProducto(), minPermitido, MONTO_MAXIMO_SERVICIO_VARIABLE
                 ));
             }
-        } else if (catProduct.getPrecio() != null && catProduct.getPrecio() > 0) {
+            return;
+        }
+
+        if (catProduct.getPrecio() != null && catProduct.getPrecio() > 0) {
             BigDecimal precioOficial = BigDecimal.valueOf(catProduct.getPrecio());
-            if (request.getPrecio().compareTo(precioOficial) != 0) {
+            if (precioSolicitado.compareTo(precioOficial) != 0) {
                 throw new BusinessRuleException(String.format(
                         "Monto inválido o manipulado: El precio enviado ($%.2f) no coincide con el precio oficial en catálogo ($%.2f) para '%s'.",
-                        request.getPrecio(), precioOficial, catProduct.getProducto()
+                        precioSolicitado, precioOficial, catProduct.getProducto()
                 ));
             }
         }
@@ -505,7 +552,7 @@ public class PagoServiceImpl implements PagoService {
                 telNorm,
                 refNorm,
                 List.of(EstadoTransaccion.EN_PROCESO, EstadoTransaccion.EXITOSA, EstadoTransaccion.PENDIENTE_CONCILIACION),
-                LocalDateTime.now().minusSeconds(VENTANA_IDEMPOTENCIA_SEGUNDOS)
+                LocalDateTime.now(ZONA_MX).minusSeconds(VENTANA_IDEMPOTENCIA_SEGUNDOS)
         );
 
         if (duplicada) {
@@ -524,7 +571,7 @@ public class PagoServiceImpl implements PagoService {
         }
 
         // Validar PIN OTP
-        ConfirmacionPin pinEntity = confirmacionPinRepository.findPinActivo(request.getNumeroCuenta(), LocalDateTime.now())
+        ConfirmacionPin pinEntity = confirmacionPinRepository.findPinActivo(request.getNumeroCuenta(), LocalDateTime.now(ZONA_MX))
                 .orElseThrow(() -> new BusinessRuleException("No se encontró un PIN de confirmación activo o ha expirado. Por favor solicite uno nuevo."));
 
         if (pinEntity.getIntentos() >= 3) {
@@ -565,7 +612,7 @@ public class PagoServiceImpl implements PagoService {
                 .horaLocal(horaLocal)
                 .distribuidor(unidad)
                 .estado(EstadoTransaccion.EN_PROCESO)
-                .fechaTransaccion(LocalDateTime.now())
+                .fechaTransaccion(LocalDateTime.now(ZONA_MX))
                 .build();
 
         TransaccionPago guardada = transaccionPagoRepository.save(transaccion);
@@ -651,35 +698,45 @@ public class PagoServiceImpl implements PagoService {
             throw new BusinessRuleException("El cliente titular de la cuenta se encuentra inactivo.");
         }
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.isAuthenticated() && auth.getPrincipal() != null && !"anonymousUser".equals(auth.getPrincipal())) {
-            String correoAutenticado = auth.getName();
-            if (correoAutenticado != null && !correoAutenticado.isBlank() && cliente != null) {
-                boolean autorizado = false;
-
-                if (cliente.getCorreoElectronico() != null && cliente.getCorreoElectronico().equalsIgnoreCase(correoAutenticado)) {
-                    autorizado = true;
-                } else if (usuarioRepository != null) {
-                    Optional<Usuario> usuarioOpt = usuarioRepository.findByCorreo(correoAutenticado);
-                    if (usuarioOpt.isPresent()) {
-                        Usuario usuario = usuarioOpt.get();
-                        if (Boolean.FALSE.equals(usuario.getActivo())) {
-                            throw new UnauthorizedOperationException("El usuario autenticado se encuentra inactivo.");
-                        }
-                        if (usuario.getCliente() != null && usuario.getCliente().getId() != null
-                                && usuario.getCliente().getId().equals(cliente.getId())) {
-                            autorizado = true;
-                        }
-                    }
-                }
-
-                if (!autorizado) {
-                    log.warn("Intento de operación no autorizada: El usuario '{}' intentó operar sobre la cuenta '{}' de otro titular.",
-                            correoAutenticado, cuenta.getNumeroCuenta());
-                    throw new UnauthorizedOperationException("Acceso denegado: No tienes autorización para realizar operaciones sobre la cuenta solicitada.");
-                }
-            }
+        Optional<String> correoAutenticadoOpt = obtenerCorreoAutenticado();
+        if (correoAutenticadoOpt.isEmpty() || cliente == null) {
+            return;
         }
+
+        String correoAutenticado = correoAutenticadoOpt.get();
+        if (!esTitularAutorizado(cliente, correoAutenticado)) {
+            log.warn("Intento de operación no autorizada: El usuario '{}' intentó operar sobre la cuenta '{}' de otro titular.",
+                    correoAutenticado, cuenta.getNumeroCuenta());
+            throw new UnauthorizedOperationException("Acceso denegado: No tienes autorización para realizar operaciones sobre la cuenta solicitada.");
+        }
+    }
+
+    private Optional<String> obtenerCorreoAutenticado() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated() || auth.getPrincipal() == null || "anonymousUser".equals(auth.getPrincipal())) {
+            return Optional.empty();
+        }
+        String correo = auth.getName();
+        return (correo != null && !correo.isBlank()) ? Optional.of(correo) : Optional.empty();
+    }
+
+    private boolean esTitularAutorizado(Cliente cliente, String correoAutenticado) {
+        if (cliente.getCorreoElectronico() != null && cliente.getCorreoElectronico().equalsIgnoreCase(correoAutenticado)) {
+            return true;
+        }
+        if (usuarioRepository == null) {
+            return false;
+        }
+        return usuarioRepository.findByCorreo(correoAutenticado)
+                .map(usuario -> {
+                    if (Boolean.FALSE.equals(usuario.getActivo())) {
+                        throw new UnauthorizedOperationException("El usuario autenticado se encuentra inactivo.");
+                    }
+                    return usuario.getCliente() != null
+                            && usuario.getCliente().getId() != null
+                            && usuario.getCliente().getId().equals(cliente.getId());
+                })
+                .orElse(false);
     }
 
     private GestoPagoToken obtenerTokenGestoPago() {
@@ -694,51 +751,40 @@ public class PagoServiceImpl implements PagoService {
 
     private void enviarCorreoComprobanteSiAplica(TransaccionPago tx) {
         try {
-            Cuenta cuenta = tx.getCuenta();
-            String correoDestino = null;
-            String nombreCliente = null;
-
-            if (cuenta != null) {
-                try {
-                    Cliente cl = cuenta.getCliente();
-                    if (cl != null) {
-                        correoDestino = cl.getCorreoElectronico();
-                        nombreCliente = cl.getNombre();
-                    }
-                } catch (Exception ignored) {}
-
-                if (correoDestino == null && cuenta.getId() != null) {
-                    Cliente cl = cuentaRepository.findById(cuenta.getId())
-                            .map(Cuenta::getCliente)
-                            .orElse(null);
-                    if (cl != null) {
-                        correoDestino = cl.getCorreoElectronico();
-                        nombreCliente = cl.getNombre();
-                    }
-                }
-            }
-
-            if (correoDestino != null && !correoDestino.isBlank()) {
-                String detalleRef = Boolean.TRUE.equals(tx.getBandera())
-                        ? "Teléfono: " + tx.getTelefono()
-                        : (tx.getReferencia() != null ? "Referencia: " + tx.getReferencia() : "Tarjeta de Regalo / PIN Digital");
-
-                emailService.enviarComprobantePago(
-                        correoDestino,
-                        nombreCliente,
-                        tx.getNumAutorizacion(),
-                        tx.getMonto(),
-                        "Producto ID: " + tx.getIdProducto(),
-                        detalleRef,
-                        tx.getUpc(),
-                        tx.getPinGiftCard()
-                );
-                log.info("Comprobante de pago enviado exitosamente por correo a: {}", correoDestino);
+            Cliente titular = obtenerClienteTitularSeguro(tx.getCuenta());
+            if (titular != null && titular.getCorreoElectronico() != null && !titular.getCorreoElectronico().isBlank()) {
+                emailService.enviarComprobantePago(titular.getCorreoElectronico(), titular.getNombre(), tx);
+                log.info("Comprobante de pago enviado exitosamente por correo a: {}", titular.getCorreoElectronico());
             } else {
                 log.warn("No se pudo obtener el correo del titular para la transacción UPC: {}", tx.getUpc());
             }
         } catch (Exception e) {
             log.error("No fue posible enviar el comprobante de pago por correo al titular: {}", e.getMessage());
+        }
+    }
+
+    private Cliente obtenerClienteTitularSeguro(Cuenta cuenta) {
+        if (cuenta == null) {
+            return null;
+        }
+        Cliente cl = extraerClienteDirecto(cuenta);
+        if (cl != null && cl.getCorreoElectronico() != null) {
+            return cl;
+        }
+        if (cuenta.getId() != null) {
+            return cuentaRepository.findById(cuenta.getId())
+                    .map(Cuenta::getCliente)
+                    .orElse(null);
+        }
+        return null;
+    }
+
+    private Cliente extraerClienteDirecto(Cuenta cuenta) {
+        try {
+            return cuenta.getCliente();
+        } catch (Exception e) {
+            log.debug("Cliente en estado lazy/detached, se consultará desde repositorio: {}", e.getMessage());
+            return null;
         }
     }
 

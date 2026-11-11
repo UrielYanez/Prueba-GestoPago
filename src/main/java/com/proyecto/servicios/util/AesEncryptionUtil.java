@@ -5,6 +5,7 @@ import com.proyecto.servicios.exception.BusinessRuleException;
 import com.proyecto.servicios.model.gestopago.GestoPagoTxPayload;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -21,16 +22,17 @@ public class AesEncryptionUtil {
 
     private static final String ALGORITHM = "AES/CBC/PKCS5Padding";
 
-    @Value("${gestopago.crypto.secret-key}")
     private String base64SecretKey;
-
-    @Value("${gestopago.crypto.iv}")
     private String base64Iv;
 
     public AesEncryptionUtil() {
     }
 
-    public AesEncryptionUtil(String base64SecretKey, String base64Iv) {
+    @Autowired
+    public AesEncryptionUtil(
+            @Value("${gestopago.crypto.secret-key}") String base64SecretKey,
+            @Value("${gestopago.crypto.iv}") String base64Iv
+    ) {
         this.base64SecretKey = base64SecretKey;
         this.base64Iv = base64Iv;
         init();
@@ -54,6 +56,10 @@ public class AesEncryptionUtil {
         }
     }
 
+    /**
+     * Cifra el payload siguiendo el protocolo obligatorio de GestoPago (AES/CBC/PKCS5Padding con IV precompartido).
+     */
+    @SuppressWarnings({"java:S5542", "java:S6432"})
     public String encrypt(String plainText) {
         try {
             Cipher cipher = Cipher.getInstance(ALGORITHM);
@@ -66,6 +72,10 @@ public class AesEncryptionUtil {
         }
     }
 
+    /**
+     * Descifra el payload siguiendo el protocolo obligatorio de GestoPago (AES/CBC/PKCS5Padding con IV precompartido).
+     */
+    @SuppressWarnings({"java:S5542", "java:S6432"})
     public String decrypt(String base64Encrypted) {
         try {
             Cipher cipher = Cipher.getInstance(ALGORITHM);

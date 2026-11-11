@@ -27,6 +27,7 @@ public class CustomErrorController implements ErrorController {
             try {
                 statusCode = Integer.parseInt(status.toString());
             } catch (NumberFormatException ignored) {
+                // Si el atributo de código HTTP no es numérico, se conserva el estado por defecto
             }
         }
 

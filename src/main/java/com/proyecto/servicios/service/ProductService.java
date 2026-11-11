@@ -5,7 +5,7 @@ import java.util.List;
 import java.util.Optional;
 
 public interface ProductService {
-    // Consulta todo el catálogo desde MongoDB con ficha técnica completa
+    // Consulta el catálogo completo desde MongoDB con ficha técnica completa
     List<CatProductJsonDto> getProductListFromMongo();
 
     // Consulta un producto específico por su idProducto desde MongoDB
