@@ -2,19 +2,15 @@ package com.proyecto.servicios.controller;
 
 import com.proyecto.servicios.model.*;
 import com.proyecto.servicios.service.CuentaService;
+import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-/**
- * Controlador REST para la gestión de cuentas bancarias.
- * Cumple con las restricciones:
- * - Cero uso de @PathVariable y @RequestParam.
- * - Toda entrada de datos mediante @RequestBody y @Valid.
- * - Respuestas uniformes mediante ApiResponse<T>.
- */
+import java.util.List;
+
 @RestController
 @RequestMapping("/cuentas")
 @Tag(name = "Cuentas", description = "Administración de cuentas bancarias: apertura de cuentas secundarias, depósitos, retiros y balances")
@@ -26,11 +22,8 @@ public class CuentaController {
         this.cuentaService = cuentaService;
     }
 
-    /**
-     * POST /cuentas/buscar
-     * Consulta dinámica y paginada por criterios (número de cuenta, clienteId, estatus).
-     */
     @PostMapping("/buscar")
+    @Operation(summary = "Buscar cuentas paginadas", description = "Consulta dinámica y paginada por criterios (número de cuenta, clienteId, estatus).")
     public ResponseEntity<ApiResponse<PaginatedResponse<CuentaResponseDto>>> buscar(
             @Valid @RequestBody CuentaBusquedaRequestDto dto) {
         PaginatedResponse<CuentaResponseDto> resultados = cuentaService.buscar(dto);
@@ -42,11 +35,20 @@ public class CuentaController {
         return ResponseEntity.ok(respuesta);
     }
 
-    /**
-     * POST /cuentas
-     * Crear una cuenta asociada a un cliente vía @RequestBody.
-     */
+    @PostMapping("/mis-cuentas")
+    @Operation(summary = "Obtener cuentas del usuario autenticado", description = "Devuelve todas las cuentas y saldos asociados al usuario autenticado mediante su JWT.")
+    public ResponseEntity<ApiResponse<List<CuentaResponseDto>>> obtenerMisCuentas() {
+        List<CuentaResponseDto> cuentas = cuentaService.obtenerMisCuentas();
+        ApiResponse<List<CuentaResponseDto>> respuesta = ApiResponse.exitoso(
+                "Cuentas del usuario obtenidas con éxito.",
+                cuentas,
+                HttpStatus.OK.value()
+        );
+        return ResponseEntity.ok(respuesta);
+    }
+
     @PostMapping
+    @Operation(summary = "Crear cuenta bancaria", description = "Crea una cuenta asociada a un cliente.")
     public ResponseEntity<ApiResponse<CuentaResponseDto>> crearCuenta(
             @Valid @RequestBody CuentaCreacionRequestDto dto) {
         CuentaResponseDto cuentaCreada = cuentaService.crearCuenta(dto);
@@ -58,11 +60,8 @@ public class CuentaController {
         return new ResponseEntity<>(respuesta, HttpStatus.CREATED);
     }
 
-    /**
-     * PATCH /cuentas/actualizar
-     * Actualiza el saldo o estatus de una cuenta vía @RequestBody.
-     */
     @PatchMapping("/actualizar")
+    @Operation(summary = "Actualizar cuenta bancaria", description = "Actualiza el saldo o estatus de una cuenta.")
     public ResponseEntity<ApiResponse<CuentaResponseDto>> actualizar(
             @Valid @RequestBody CuentaActualizacionDto dto) {
         CuentaResponseDto cuentaActualizada = cuentaService.actualizar(dto);

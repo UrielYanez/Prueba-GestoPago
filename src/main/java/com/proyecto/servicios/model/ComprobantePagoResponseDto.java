@@ -19,6 +19,18 @@ public class ComprobantePagoResponseDto {
     @Schema(description = "Número de cuenta origen", example = "0000000001")
     private String numeroCuenta;
 
+    @Schema(description = "Identificador del producto en GestoPago", example = "381")
+    private String idProducto;
+
+    @Schema(description = "Nombre comercial del producto adquirido", example = "Recarga $100")
+    private String nombreProducto;
+
+    @Schema(description = "Identificador del servicio en GestoPago", example = "124")
+    private String idServicio;
+
+    @Schema(description = "Nombre de la compañía o servicio", example = "Movistar")
+    private String nombreServicio;
+
     @Schema(description = "Identificador de transacción otorgado por el proveedor", example = "98273615")
     private String idTxProveedor;
 
@@ -27,6 +39,9 @@ public class ComprobantePagoResponseDto {
 
     @Schema(description = "Código único de transacción (UPC)", example = "202610231345999")
     private String upc;
+
+    @Schema(description = "Clave de idempotencia del cliente (si fue enviada)", example = "550e8400-e29b-41d4-a716-446655440000")
+    private String idOperacionCliente;
 
     @Schema(description = "Bandera de operación: true = Recarga, false = Servicio / Tarjeta de Regalo", example = "true")
     private Boolean bandera;

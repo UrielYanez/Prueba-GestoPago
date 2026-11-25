@@ -9,11 +9,14 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface CuentaRepository extends JpaRepository<Cuenta, Long>, JpaSpecificationExecutor<Cuenta> {
     Optional<Cuenta> findByNumeroCuenta(String numeroCuenta);
+
+    List<Cuenta> findByClienteId(Long clienteId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT c FROM Cuenta c WHERE c.numeroCuenta = :numeroCuenta")

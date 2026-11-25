@@ -3,6 +3,8 @@ package com.proyecto.servicios.controller;
 import com.proyecto.servicios.model.ApiResponse;
 import com.proyecto.servicios.model.ComprobantePagoResponseDto;
 import com.proyecto.servicios.model.ConciliarPagoRequestDto;
+import com.proyecto.servicios.model.HistorialPagosRequestDto;
+import com.proyecto.servicios.model.PaginatedResponse;
 import com.proyecto.servicios.model.ProcesarPagoRequestDto;
 import com.proyecto.servicios.model.SolicitudPinRequestDto;
 import com.proyecto.servicios.service.PagoService;
@@ -20,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/pagos")
 @RequiredArgsConstructor
-@Tag(name = "Pagos y Transacciones", description = "Procesamiento de pagos con GestoPago, confirmación de seguridad OTP (2FA) y conciliación de operaciones")
+@Tag(name = "Pagos y Transacciones", description = "Procesamiento de pagos con GestoPago, confirmación de seguridad OTP (2FA), conciliación e historial de operaciones")
 public class PagoController {
 
     private final PagoService pagoService;
@@ -58,13 +60,29 @@ public class PagoController {
     @PostMapping("/conciliar")
     @Operation(
             summary = "Conciliar transacción pendiente por timeout (confirmTx.do)",
-            description = "Consulta en GestoPago confirmTx.do el estado real de una transacción en PENDIENTE_CONCILIACION. Si fue aplicada (código 06), la consolida como EXITOSA; si no fue aplicada (código 70), la marca como RECHAZADA y reembolsa el saldo al cliente."
+            description = "Consulta en GestoPago confirmTx.do el estado real de una transacción en PENDIENTE_CONCILIACION por UPC o por idOperacionCliente. Si fue aplicada (código 06), la consolida como EXITOSA; si no fue aplicada (código 70), la marca como RECHAZADA y reembolsa el saldo al cliente."
     )
     public ResponseEntity<ApiResponse<ComprobantePagoResponseDto>> conciliarPago(@Valid @RequestBody ConciliarPagoRequestDto request) {
         ComprobantePagoResponseDto comprobante = pagoService.conciliarPago(request);
         ApiResponse<ComprobantePagoResponseDto> respuesta = ApiResponse.exitoso(
                 "Conciliación de transacción completada.",
                 comprobante,
+                HttpStatus.OK.value()
+        );
+        return ResponseEntity.ok(respuesta);
+    }
+
+    @PostMapping("/historial")
+    @Operation(
+            summary = "Consultar historial paginado de operaciones exitosas",
+            description = "Devuelve únicamente las compras exitosas asociadas al usuario autenticado, ordenadas cronológicamente de más reciente a más antigua."
+    )
+    public ResponseEntity<ApiResponse<PaginatedResponse<ComprobantePagoResponseDto>>> consultarHistorial(
+            @RequestBody(required = false) HistorialPagosRequestDto request) {
+        PaginatedResponse<ComprobantePagoResponseDto> historial = pagoService.consultarHistorialExitoso(request);
+        ApiResponse<PaginatedResponse<ComprobantePagoResponseDto>> respuesta = ApiResponse.exitoso(
+                "Historial de operaciones exitosas obtenido correctamente.",
+                historial,
                 HttpStatus.OK.value()
         );
         return ResponseEntity.ok(respuesta);

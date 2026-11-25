@@ -11,6 +11,8 @@ import com.proyecto.servicios.exception.ResourceNotFoundException;
 import com.proyecto.servicios.exception.UnauthorizedOperationException;
 import com.proyecto.servicios.model.ComprobantePagoResponseDto;
 import com.proyecto.servicios.model.ConciliarPagoRequestDto;
+import com.proyecto.servicios.model.HistorialPagosRequestDto;
+import com.proyecto.servicios.model.PaginatedResponse;
 import com.proyecto.servicios.model.ProcesarPagoRequestDto;
 import com.proyecto.servicios.model.SolicitudPinRequestDto;
 import com.proyecto.servicios.model.gestopago.ProductStatusEnum;
@@ -28,6 +30,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -37,7 +41,9 @@ import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.net.SocketTimeoutException;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -46,6 +52,8 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class PagoServiceTest {
+
+    private static final ZoneId ZONA_MX = ZoneId.of("America/Mexico_City");
 
     @Mock
     private CuentaRepository cuentaRepository;
@@ -184,6 +192,7 @@ class PagoServiceTest {
                 .telefono("5512345678")
                 .referencia(null)
                 .pin("123456")
+                .idOperacionCliente("uuid-op-100")
                 .build();
 
         ConfirmacionPin pinMock = ConfirmacionPin.builder()
@@ -192,7 +201,7 @@ class PagoServiceTest {
                 .pinHash("hashed-pin")
                 .intentos(0)
                 .utilizado(false)
-                .fechaExpiracion(LocalDateTime.now().plusMinutes(5))
+                .fechaExpiracion(LocalDateTime.now(ZONA_MX).plusMinutes(5))
                 .build();
 
         GestoPagoToken tokenMock = new GestoPagoToken();
@@ -229,6 +238,7 @@ class PagoServiceTest {
         assertEquals("EXITOSA", resp.getEstadoTransaccion());
         assertEquals("AUT-771122", resp.getNumAutorizacion());
         assertEquals("884920", resp.getIdTxProveedor());
+        assertEquals("uuid-op-100", resp.getIdOperacionCliente());
         assertEquals(new BigDecimal("400.00"), resp.getNuevoSaldoCuenta());
         assertEquals(new BigDecimal("400.00"), cuentaMock.getSaldo());
         assertEquals("5512345678", resp.getTelefono());
@@ -260,7 +270,7 @@ class PagoServiceTest {
                 .pinHash("hashed-pin")
                 .intentos(0)
                 .utilizado(false)
-                .fechaExpiracion(LocalDateTime.now().plusMinutes(5))
+                .fechaExpiracion(LocalDateTime.now(ZONA_MX).plusMinutes(5))
                 .build();
 
         GestoPagoToken tokenMock = new GestoPagoToken();
@@ -357,7 +367,7 @@ class PagoServiceTest {
                 .pinHash("hashed-pin")
                 .intentos(0)
                 .utilizado(false)
-                .fechaExpiracion(LocalDateTime.now().plusMinutes(5))
+                .fechaExpiracion(LocalDateTime.now(ZONA_MX).plusMinutes(5))
                 .build();
 
         when(cuentaRepository.findByNumeroCuentaForUpdate("0000000001")).thenReturn(Optional.of(cuentaMock));
@@ -389,7 +399,7 @@ class PagoServiceTest {
                 .pinHash("hashed-pin")
                 .intentos(0)
                 .utilizado(false)
-                .fechaExpiracion(LocalDateTime.now().plusMinutes(5))
+                .fechaExpiracion(LocalDateTime.now(ZONA_MX).plusMinutes(5))
                 .build();
 
         GestoPagoToken tokenMock = new GestoPagoToken();
@@ -416,7 +426,6 @@ class PagoServiceTest {
 
         BusinessRuleException ex = assertThrows(BusinessRuleException.class, () -> pagoService.procesarPago(req));
         assertTrue(ex.getMessage().contains("Saldo insuficiente en distribuidor"));
-        // El saldo reservado es compensado/reintegrado íntegramente tras el rechazo del proveedor
         assertEquals(new BigDecimal("500.00"), cuentaMock.getSaldo());
     }
 
@@ -437,7 +446,7 @@ class PagoServiceTest {
                 .numeroCuenta("0000000001")
                 .idServicio("124")
                 .idProducto("381")
-                .precio(new BigDecimal("10.00")) // Monto manipulado: envía $10 en lugar de $100
+                .precio(new BigDecimal("10.00"))
                 .bandera(true)
                 .telefono("5512345678")
                 .pin("123456")
@@ -520,6 +529,33 @@ class PagoServiceTest {
     }
 
     @Test
+    void testProcesarPagoIdOperacionClienteDuplicadoLanza409() {
+        ProcesarPagoRequestDto req = ProcesarPagoRequestDto.builder()
+                .numeroCuenta("0000000001")
+                .idServicio("124")
+                .idProducto("381")
+                .precio(new BigDecimal("100.00"))
+                .bandera(true)
+                .telefono("5512345678")
+                .pin("123456")
+                .idOperacionCliente("uuid-dup-001")
+                .build();
+
+        TransaccionPago txPrevio = TransaccionPago.builder()
+                .id(50L)
+                .upc("UPC500")
+                .idOperacionCliente("uuid-dup-001")
+                .estado(EstadoTransaccion.PENDIENTE_CONCILIACION)
+                .build();
+
+        when(cuentaRepository.findByNumeroCuentaForUpdate("0000000001")).thenReturn(Optional.of(cuentaMock));
+        when(transaccionPagoRepository.findByIdOperacionCliente("uuid-dup-001")).thenReturn(Optional.of(txPrevio));
+
+        assertThrows(DuplicatedResourceException.class, () -> pagoService.procesarPago(req));
+        verify(transactionClient, never()).sendTx(any(), any(), any(), any());
+    }
+
+    @Test
     void testProcesarPagoTimeoutMarcaPendienteConciliacionSinReembolsoPrematuro() {
         ProcesarPagoRequestDto req = ProcesarPagoRequestDto.builder()
                 .numeroCuenta("0000000001")
@@ -537,7 +573,7 @@ class PagoServiceTest {
                 .pinHash("hashed-pin")
                 .intentos(0)
                 .utilizado(false)
-                .fechaExpiracion(LocalDateTime.now().plusMinutes(5))
+                .fechaExpiracion(LocalDateTime.now(ZONA_MX).plusMinutes(5))
                 .build();
 
         GestoPagoToken tokenMock = new GestoPagoToken();
@@ -553,13 +589,12 @@ class PagoServiceTest {
 
         ProviderTimeoutException ex = assertThrows(ProviderTimeoutException.class, () -> pagoService.procesarPago(req));
         assertTrue(ex.getMessage().contains("PENDIENTE_CONCILIACION"));
-        // El saldo permanece reservado ($400.00) hasta que confirmTx.do determine si se aplicó o no
         assertEquals(new BigDecimal("400.00"), cuentaMock.getSaldo());
     }
 
     @Test
     void testConciliarPagoNoAplicadoCodigo70ReembolsaSaldo() {
-        cuentaMock.setSaldo(new BigDecimal("400.00")); // Saldo tras la reserva inicial
+        cuentaMock.setSaldo(new BigDecimal("400.00"));
         TransaccionPago txPendiente = TransaccionPago.builder()
                 .id(77L)
                 .cuenta(cuentaMock)
@@ -572,7 +607,7 @@ class PagoServiceTest {
                 .horaLocal("20261029120000")
                 .distribuidor("083")
                 .estado(EstadoTransaccion.PENDIENTE_CONCILIACION)
-                .fechaTransaccion(LocalDateTime.now())
+                .fechaTransaccion(LocalDateTime.now(ZONA_MX))
                 .build();
 
         GestoPagoToken tokenMock = new GestoPagoToken();
@@ -600,13 +635,12 @@ class PagoServiceTest {
 
         assertEquals("RECHAZADA", resp.getEstadoTransaccion());
         assertEquals("RECHAZADO", resp.getCodigoRespuesta());
-        // Saldo restaurado a $500.00
         assertEquals(new BigDecimal("500.00"), cuentaMock.getSaldo());
         assertEquals(new BigDecimal("500.00"), resp.getNuevoSaldoCuenta());
     }
 
     @Test
-    void testConciliarPagoAplicadoExitosamenteCodigo06() {
+    void testConciliarPagoAplicadoExitosamenteCodigo06PorIdOperacionCliente() {
         cuentaMock.setSaldo(new BigDecimal("400.00"));
         TransaccionPago txPendiente = TransaccionPago.builder()
                 .id(78L)
@@ -617,10 +651,11 @@ class PagoServiceTest {
                 .bandera(true)
                 .monto(new BigDecimal("100.00"))
                 .upc("UPC987654321")
+                .idOperacionCliente("uuid-cliente-78")
                 .horaLocal("20261029120000")
                 .distribuidor("083")
                 .estado(EstadoTransaccion.PENDIENTE_CONCILIACION)
-                .fechaTransaccion(LocalDateTime.now())
+                .fechaTransaccion(LocalDateTime.now(ZONA_MX))
                 .build();
 
         GestoPagoToken tokenMock = new GestoPagoToken();
@@ -637,18 +672,57 @@ class PagoServiceTest {
                 </RESPONSE>
                 """;
 
-        when(transaccionPagoRepository.findByUpcWithCuentaAndCliente("UPC987654321")).thenReturn(Optional.of(txPendiente));
+        when(transaccionPagoRepository.findByIdOperacionClienteWithCuentaAndCliente("uuid-cliente-78")).thenReturn(Optional.of(txPendiente));
         when(aesEncryptionUtil.encryptPayload(any())).thenReturn("signed-confirm");
         when(gestoPagoTokenService.obtenerTokenActivo(83, "GPS83-TPV-17")).thenReturn(Optional.of(tokenMock));
         when(transactionClient.confirmTx(anyString(), anyString(), anyString(), anyString())).thenReturn(xmlConfirmExitosa);
 
-        ConciliarPagoRequestDto req = ConciliarPagoRequestDto.builder().upc("UPC987654321").build();
+        ConciliarPagoRequestDto req = ConciliarPagoRequestDto.builder().idOperacionCliente("uuid-cliente-78").build();
         ComprobantePagoResponseDto resp = pagoService.conciliarPago(req);
 
         assertEquals("EXITOSA", resp.getEstadoTransaccion());
         assertEquals("CONCILIADO_APROBADO", resp.getCodigoRespuesta());
         assertEquals("100024988", resp.getNumAutorizacion());
         assertEquals("291437188", resp.getIdTxProveedor());
+        assertEquals("uuid-cliente-78", resp.getIdOperacionCliente());
         assertEquals(new BigDecimal("400.00"), resp.getNuevoSaldoCuenta());
+    }
+
+    @Test
+    void testConsultarHistorialExitosoPaginado() {
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                "aguayomar77@gmail.com",
+                null,
+                Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))
+        );
+        SecurityContextHolder.getContext().setAuthentication(auth);
+
+        TransaccionPago tx1 = TransaccionPago.builder()
+                .id(1L)
+                .cuenta(cuentaMock)
+                .idServicio("124")
+                .idProducto("381")
+                .nombreProducto("Recarga $100")
+                .nombreServicio("Movistar")
+                .monto(new BigDecimal("100.00"))
+                .upc("UPC001")
+                .numAutorizacion("AUT001")
+                .estado(EstadoTransaccion.EXITOSA)
+                .codigoRespuesta("01")
+                .fechaTransaccion(LocalDateTime.now(ZONA_MX))
+                .build();
+
+        when(transaccionPagoRepository.findHistorialPorCorreoCliente(
+                eq("aguayomar77@gmail.com"), isNull(), eq(EstadoTransaccion.EXITOSA), any(Pageable.class)
+        )).thenReturn(new PageImpl<>(List.of(tx1)));
+
+        PaginatedResponse<ComprobantePagoResponseDto> historial = pagoService.consultarHistorialExitoso(
+                HistorialPagosRequestDto.builder().page(0).size(10).build()
+        );
+
+        assertNotNull(historial);
+        assertEquals(1, historial.getTotalElementos());
+        assertEquals("Recarga $100", historial.getContenido().get(0).getNombreProducto());
+        assertEquals("Movistar", historial.getContenido().get(0).getNombreServicio());
     }
 }

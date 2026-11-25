@@ -74,6 +74,15 @@ public class TransaccionPago {
     @Column(name = "hora_local", length = 20)
     private String horaLocal;
 
+    @Column(name = "id_operacion_cliente", length = 80)
+    private String idOperacionCliente;
+
+    @Column(name = "nombre_producto", length = 150)
+    private String nombreProducto;
+
+    @Column(name = "nombre_servicio", length = 100)
+    private String nombreServicio;
+
     @Column(name = "fecha_transaccion", nullable = false, updatable = false)
     @Builder.Default
     private LocalDateTime fechaTransaccion = LocalDateTime.now(ZoneId.of("America/Mexico_City"));

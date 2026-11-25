@@ -1,8 +1,10 @@
 package com.proyecto.servicios.controller;
 
 import com.proyecto.servicios.model.ApiResponse;
+import com.proyecto.servicios.model.PaginatedResponse;
 import com.proyecto.servicios.model.gestopago.CatProductJsonDto;
 import com.proyecto.servicios.model.gestopago.ProductQueryRequest;
+import com.proyecto.servicios.model.gestopago.ProductoBusquedaRequestDto;
 import com.proyecto.servicios.service.ProductService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -32,6 +34,19 @@ public class ProductController {
         ApiResponse<List<CatProductJsonDto>> respuesta = ApiResponse.exitoso(
                 "Productos obtenidos exitosamente desde MongoDB.",
                 productos,
+                HttpStatus.OK.value()
+        );
+        return ResponseEntity.ok(respuesta);
+    }
+
+    @PostMapping("/productos/buscar")
+    @Operation(summary = "Buscar productos con paginación y filtros", description = "Permite buscar productos por nombre/compañía, filtrar por categoría o servicio y paginar los resultados.")
+    public ResponseEntity<ApiResponse<PaginatedResponse<CatProductJsonDto>>> buscarProductos(
+            @RequestBody(required = false) ProductoBusquedaRequestDto request) {
+        PaginatedResponse<CatProductJsonDto> resultado = productService.buscarProductosPaginado(request);
+        ApiResponse<PaginatedResponse<CatProductJsonDto>> respuesta = ApiResponse.exitoso(
+                "Catálogo consultado exitosamente.",
+                resultado,
                 HttpStatus.OK.value()
         );
         return ResponseEntity.ok(respuesta);
