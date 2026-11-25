@@ -31,8 +31,14 @@ public class CatProductJsonDto {
     @Schema(description = "Categoría del servicio (1=Tiempo Aire, 5=Servicios, 10=Gift Card, 13=Telefonía Virtual)", example = "1")
     private String idCatTipoServicio;
 
+    @Schema(description = "Nombre legible de la categoría del servicio", example = "Tiempo Aire / Recargas")
+    private String nombreCategoria;
+
     @Schema(description = "Tipo de interfaz/formulario frontend (1=Monto fijo/Recarga, 2=Pago de servicio monto abierto, 4=Consulta saldo)", example = "1")
     private String tipoFront;
+
+    @Schema(description = "Tipo de operación sugerido para el procesamiento de pago", example = "RECARGA")
+    private String tipoOperacionSugerido;
 
     @Schema(description = "Indica si la referencia requiere cálculo o validación de dígito verificador", example = "false")
     private Boolean hasDigitoVerificador;

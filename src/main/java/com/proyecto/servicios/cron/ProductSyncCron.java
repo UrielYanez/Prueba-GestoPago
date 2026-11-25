@@ -22,7 +22,7 @@ public class ProductSyncCron {
     /**
      * Sincronización programada diaria a las 06:00 AM.
      */
-    @Scheduled(cron = "0 0 6 * * *")
+    @Scheduled(cron = "${gestopago.catalogo.cron:0 0 6 * * *}", zone = "America/Mexico_City")
     public void syncDailyAt6Am() {
         log.info("Ejecutando cron programado de sincronización de productos a Mongo a las 06:00 AM");
         productService.syncProductsToMongo();
@@ -37,6 +37,10 @@ public class ProductSyncCron {
     public void syncOnStartup() {
         CompletableFuture.runAsync(() -> {
             try {
+                if (productService.hasProductsInMongo()) {
+                    log.info("Catálogo de productos ya cargado en MongoDB. Se omite sincronización inicial para respetar el límite diario de 1 petición a GestoPago.");
+                    return;
+                }
                 // Pausa prudente de 2 segundos para asegurar que el token inicial ya quedó guardado en PostgreSQL
                 Thread.sleep(2000);
                 log.info("Iniciando sincronización automática de productos hacia MongoDB tras arranque completo...");

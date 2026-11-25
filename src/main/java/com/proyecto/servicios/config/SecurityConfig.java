@@ -3,11 +3,13 @@ package com.proyecto.servicios.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.proyecto.servicios.model.ApiResponse;
+import com.proyecto.servicios.repositorys.postgres.UsuarioRepository;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -16,6 +18,11 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -24,7 +31,7 @@ public class SecurityConfig {
     private final JwtAuthFilter jwtAuthFilter;
     private final ObjectMapper objectMapper;
 
-    public SecurityConfig(JwtUtil jwtUtil, com.proyecto.servicios.repositorys.postgres.UsuarioRepository usuarioRepository) {
+    public SecurityConfig(JwtUtil jwtUtil, UsuarioRepository usuarioRepository) {
         this.jwtAuthFilter = new JwtAuthFilter(jwtUtil, usuarioRepository);
         this.objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     }
@@ -35,29 +42,49 @@ public class SecurityConfig {
     }
 
     @Bean
+    @SuppressWarnings("java:S5122")
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(List.of(
+                "http://localhost:5173",
+                "http://localhost:3000",
+                "http://localhost:4173",
+                "http://127.0.0.1:5173"
+        ));
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Client-Platform", "X-Idempotency-Key", "Accept"));
+        configuration.setExposedHeaders(List.of("Authorization"));
+        configuration.setAllowCredentials(true);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
+    }
+
+    @Bean
     @SuppressWarnings("java:S4502")
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            // La protección CSRF se deshabilita de forma segura ya que la API es 100% stateless basada en tokens Bearer JWT
+            .cors(Customizer.withDefaults())
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                // Rutas públicas
                 .requestMatchers(HttpMethod.POST, "/clientes").permitAll()
                 .requestMatchers(HttpMethod.POST, "/clientes/reactivar").permitAll()
-                .requestMatchers("/auth/login").permitAll()
+                .requestMatchers("/auth/login", "/auth/verificar-2fa", "/auth/recuperar-2fa").permitAll()
                 .requestMatchers("/error").permitAll()
                 .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html", "/getProductList", "/productos/**").permitAll()
-                // El resto de las rutas requiere autenticación
                 .anyRequest().authenticated()
             )
-            // Manejo de errores 401 y 403 con ApiResponse uniforme
             .exceptionHandling(exceptions -> exceptions
                 .authenticationEntryPoint((request, response, authException) -> {
                     response.setContentType("application/json;charset=UTF-8");
                     response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    Object customError = request.getAttribute(JwtAuthFilter.ATTR_AUTH_ERROR);
+                    String mensaje = customError != null
+                            ? customError.toString()
+                            : "No autorizado: Se requiere un token JWT válido para acceder a este recurso.";
                     ApiResponse<Void> apiResponse = ApiResponse.error(
-                        "No autorizado: Se requiere un token JWT válido para acceder a este recurso.",
+                        mensaje,
                         HttpStatus.UNAUTHORIZED.value()
                     );
                     objectMapper.writeValue(response.getOutputStream(), apiResponse);

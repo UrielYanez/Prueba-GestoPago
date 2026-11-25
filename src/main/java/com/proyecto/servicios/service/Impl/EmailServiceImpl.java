@@ -1,5 +1,6 @@
 package com.proyecto.servicios.service.Impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.proyecto.servicios.entity.postgres.TransaccionPago;
 import com.proyecto.servicios.exception.BusinessRuleException;
 import com.proyecto.servicios.service.EmailService;
@@ -13,10 +14,16 @@ import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -26,22 +33,24 @@ public class EmailServiceImpl implements EmailService {
     private static final ZoneId ZONA_MX = ZoneId.of("America/Mexico_City");
 
     private final JavaMailSender mailSender;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.ALWAYS)
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
 
     @Value("${spring.mail.username}")
     private String remitente;
 
+    @Value("${spring.mail.webhook.url:}")
+    private String webhookUrl;
+
     @Override
     public void enviarPinTransaccion(String destinatario, String nombreCliente, String pin, BigDecimal monto, String producto) {
         log.info("Preparando envío de PIN de confirmación para cliente: {} al correo: {}", nombreCliente, destinatario);
-        try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+        String asunto = "Código de Seguridad para Confirmación de Pago - GestoPago";
 
-            helper.setFrom(remitente);
-            helper.setTo(destinatario);
-            helper.setSubject("Código de Seguridad para Confirmación de Pago - GestoPago");
-
-            String htmlContent = """
+        String htmlContent = """
                 <!DOCTYPE html>
                 <html>
                 <head>
@@ -93,44 +102,31 @@ public class EmailServiceImpl implements EmailService {
                     Year.now(ZONA_MX).getValue()
             );
 
-            helper.setText(htmlContent, true);
-            mailSender.send(message);
-            log.info("Correo de PIN enviado exitosamente a: {}", destinatario);
-
-        } catch (MessagingException | org.springframework.mail.MailException e) {
-            log.error("Error al enviar correo de PIN a {}: {}", destinatario, e.getMessage(), e);
-            throw new BusinessRuleException("No se pudo enviar el código de confirmación por correo: " + e.getMessage());
-        }
+        enviarCorreo(destinatario, asunto, htmlContent, true);
     }
 
     @Override
     public void enviarComprobantePago(String destinatario, String nombreCliente, TransaccionPago tx) {
         log.info("Enviando comprobante de pago exitoso a: {}", destinatario);
-        try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+        String asunto = "Comprobante de Pago Exitoso - GestoPago";
 
-            helper.setFrom(remitente);
-            helper.setTo(destinatario);
-            helper.setSubject("Comprobante de Pago Exitoso - GestoPago");
+        String fechaHora = LocalDateTime.now(ZONA_MX).format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"));
+        String pinGiftCard = tx.getPinGiftCard();
+        String autorizacion = tx.getNumAutorizacion();
+        String producto = "Producto ID: " + tx.getIdProducto();
+        String referencia = obtenerDetalleReferencia(tx);
+        String upc = tx.getUpc();
+        BigDecimal monto = tx.getMonto();
 
-            String fechaHora = LocalDateTime.now(ZONA_MX).format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"));
-            String pinGiftCard = tx.getPinGiftCard();
-            String autorizacion = tx.getNumAutorizacion();
-            String producto = "Producto ID: " + tx.getIdProducto();
-            String referencia = obtenerDetalleReferencia(tx);
-            String upc = tx.getUpc();
-            BigDecimal monto = tx.getMonto();
-
-            String pinBoxHtml = "";
-            if (pinGiftCard != null && !pinGiftCard.isBlank()) {
-                pinBoxHtml = """
-                    <div style="background: #fffbeb; border: 2px dashed #f59e0b; padding: 15px; border-radius: 8px; text-align: center; margin: 20px 0;">
-                        <p style="margin: 0; font-size: 13px; color: #92400e; font-weight: 700; text-transform: uppercase;">PIN / Código de Canje de Tarjeta de Regalo:</p>
-                        <p style="margin: 8px 0 0 0; font-size: 26px; font-weight: 800; color: #b45309; letter-spacing: 4px;">{{pin}}</p>
-                    </div>
-                    """.replace("{{pin}}", pinGiftCard);
-            }
+        String pinBoxHtml = "";
+        if (pinGiftCard != null && !pinGiftCard.isBlank()) {
+            pinBoxHtml = """
+                <div style="background: #fffbeb; border: 2px dashed #f59e0b; padding: 15px; border-radius: 8px; text-align: center; margin: 20px 0;">
+                    <p style="margin: 0; font-size: 13px; color: #92400e; font-weight: 700; text-transform: uppercase;">PIN / Código de Canje de Tarjeta de Regalo:</p>
+                    <p style="margin: 8px 0 0 0; font-size: 26px; font-weight: 800; color: #b45309; letter-spacing: 4px;">{{pin}}</p>
+                </div>
+                """.replace("{{pin}}", pinGiftCard);
+        }
 
             String htmlContent = """
                 <!DOCTYPE html>
@@ -208,13 +204,63 @@ public class EmailServiceImpl implements EmailService {
                 .replace("{{monto}}", monto != null ? monto.toPlainString() : "0.00")
                 .replace("{{anio}}", String.valueOf(Year.now(ZONA_MX).getValue()));
 
+        enviarCorreo(destinatario, asunto, htmlContent, false);
+    }
+
+    private void enviarCorreo(String destinatario, String asunto, String htmlContent, boolean lanzarExcepcionSiFalla) {
+        if (webhookUrl != null && !webhookUrl.isBlank() && enviarPorWebhook(destinatario, asunto, htmlContent)) {
+            return;
+        }
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            helper.setFrom(remitente);
+            helper.setTo(destinatario);
+            helper.setSubject(asunto);
             helper.setText(htmlContent, true);
             mailSender.send(message);
-            log.info("Comprobante enviado exitosamente a: {}", destinatario);
-
+            log.info("Correo enviado exitosamente vía SMTP a: {}", destinatario);
         } catch (MessagingException | org.springframework.mail.MailException e) {
+            if (lanzarExcepcionSiFalla) {
+                log.error("Error al enviar correo a {}: {}", destinatario, e.getMessage(), e);
+                throw new BusinessRuleException("No se pudo enviar el código de confirmación por correo: " + e.getMessage());
+            }
             log.warn("No se pudo enviar el comprobante de pago por correo a {}: {}", destinatario, e.getMessage());
         }
+    }
+
+    private boolean enviarPorWebhook(String destinatario, String asunto, String htmlContent) {
+        try {
+            String jsonBody = objectMapper.writeValueAsString(Map.of(
+                    "to", destinatario,
+                    "subject", asunto,
+                    "htmlBody", htmlContent
+            ));
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(webhookUrl.trim()))
+                    .timeout(Duration.ofSeconds(15))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.uri() != null && response.uri().toString().contains("accounts.google.com")) {
+                log.warn("El Webhook HTTPS redirigió a autenticación de Google; verifique permisos 'Cualquier usuario'. Intentando respaldo SMTP.");
+                return false;
+            }
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                log.info("Correo enviado exitosamente vía Webhook HTTPS a: {}", destinatario);
+                return true;
+            }
+            log.warn("El Webhook HTTPS respondió HTTP {} al enviar a {}. Intentando respaldo SMTP.", response.statusCode(), destinatario);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Envío vía Webhook HTTPS interrumpido para {}: {}", destinatario, e.getMessage());
+        } catch (Exception e) {
+            log.warn("Fallo al enviar vía Webhook HTTPS a {}: {}. Intentando respaldo SMTP.", destinatario, e.getMessage());
+        }
+        return false;
     }
 
     private String obtenerDetalleReferencia(TransaccionPago tx) {

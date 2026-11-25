@@ -1,16 +1,20 @@
 package com.proyecto.servicios.service.Impl;
 
+import com.proyecto.servicios.entity.postgres.Cliente;
 import com.proyecto.servicios.entity.postgres.Cuenta;
 import com.proyecto.servicios.entity.postgres.EstatusCuenta;
 import com.proyecto.servicios.exception.BusinessRuleException;
 import com.proyecto.servicios.exception.ResourceNotFoundException;
 import com.proyecto.servicios.model.*;
+import com.proyecto.servicios.repositorys.postgres.ClienteRepository;
 import com.proyecto.servicios.repositorys.postgres.CuentaRepository;
 import com.proyecto.servicios.service.CuentaService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,16 +22,15 @@ import java.math.BigDecimal;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 public class CuentaServiceImpl implements CuentaService {
 
     private final CuentaRepository cuentaRepository;
-    private final com.proyecto.servicios.repositorys.postgres.ClienteRepository clienteRepository;
+    private final ClienteRepository clienteRepository;
     private final SecureRandom secureRandom = new SecureRandom();
 
-    public CuentaServiceImpl(CuentaRepository cuentaRepository, com.proyecto.servicios.repositorys.postgres.ClienteRepository clienteRepository) {
+    public CuentaServiceImpl(CuentaRepository cuentaRepository, ClienteRepository clienteRepository) {
         this.cuentaRepository = cuentaRepository;
         this.clienteRepository = clienteRepository;
     }
@@ -63,7 +66,7 @@ public class CuentaServiceImpl implements CuentaService {
 
         List<CuentaResponseDto> contenido = pagina.getContent().stream()
                 .map(this::mapearAResponse)
-                .collect(Collectors.toList());
+                .toList();
 
         return PaginatedResponse.<CuentaResponseDto>builder()
                 .contenido(contenido)
@@ -77,9 +80,24 @@ public class CuentaServiceImpl implements CuentaService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<CuentaResponseDto> obtenerMisCuentas() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getName() == null) {
+            throw new BusinessRuleException("No se encontró una sesión autenticada válida.");
+        }
+        String correo = auth.getName();
+        return clienteRepository.findByCorreoElectronico(correo)
+                .map(c -> cuentaRepository.findByClienteId(c.getId()).stream()
+                        .map(this::mapearAResponse)
+                        .toList())
+                .orElse(List.of());
+    }
+
+    @Override
     @Transactional
     public CuentaResponseDto crearCuenta(CuentaCreacionRequestDto dto) {
-        com.proyecto.servicios.entity.postgres.Cliente cliente = clienteRepository.findById(dto.getClienteId())
+        Cliente cliente = clienteRepository.findById(dto.getClienteId())
                 .orElseThrow(() -> new ResourceNotFoundException("No se encontró un cliente con ID: " + dto.getClienteId()));
 
         if (Boolean.FALSE.equals(cliente.getActivo())) {
@@ -115,8 +133,12 @@ public class CuentaServiceImpl implements CuentaService {
             throw new BusinessRuleException("El saldo no puede ser negativo.");
         }
 
-        if (dto.getSaldo() != null)  cuenta.setSaldo(dto.getSaldo());
-        if (dto.getEstatus() != null) cuenta.setEstatus(dto.getEstatus());
+        if (dto.getSaldo() != null) {
+            cuenta.setSaldo(dto.getSaldo());
+        }
+        if (dto.getEstatus() != null) {
+            cuenta.setEstatus(dto.getEstatus());
+        }
 
         return mapearAResponse(cuentaRepository.save(cuenta));
     }

@@ -48,4 +48,7 @@ public class ProcesarPagoRequestDto {
     @NotBlank(message = "El PIN de confirmación es obligatorio")
     @Schema(description = "Código PIN de 6 dígitos recibido por correo electrónico", example = "849201")
     private String pin;
+
+    @Schema(description = "Clave de idempotencia única generada por el cliente (UUID v4) para conciliar ante caída de red", example = "550e8400-e29b-41d4-a716-446655440000")
+    private String idOperacionCliente;
 }

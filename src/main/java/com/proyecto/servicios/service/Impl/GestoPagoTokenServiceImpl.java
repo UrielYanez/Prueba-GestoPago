@@ -11,11 +11,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Optional;
 
 @Service
 @Slf4j
 public class GestoPagoTokenServiceImpl implements GestoPagoTokenService {
+
+    private static final ZoneId ZONA_MX = ZoneId.of("America/Mexico_City");
 
     private final GestoPagoAuthClient gestoPagoAuthClient;
     private final GestoPagoTokenRepository tokenRepository;
@@ -30,6 +34,9 @@ public class GestoPagoTokenServiceImpl implements GestoPagoTokenService {
     @Value("${gestopago.auth.password}")
     private String password;
 
+    @Value("${gestopago.auth.token-validity-hours:23}")
+    private long tokenValidityHours = 23;
+
     public GestoPagoTokenServiceImpl(GestoPagoAuthClient gestoPagoAuthClient,
                                      GestoPagoTokenRepository tokenRepository,
                                      GestoPagoTokenMapper tokenMapper) {
@@ -41,6 +48,14 @@ public class GestoPagoTokenServiceImpl implements GestoPagoTokenService {
     @Override
     @Scheduled(fixedRateString = "${gestopago.auth.refresh-rate-ms:3600000}", initialDelay = 0)
     public void renovarToken() {
+        Optional<GestoPagoToken> tokenActual = tokenRepository
+                .findByIdDistribuidorAndCodigoDispositivo(idDistribuidor, codigoDispositivo);
+        if (tokenActual.isPresent() && esTokenVigente(tokenActual.get())) {
+            log.info("Token GestoPago vigente en BD (actualizado: {}). Se reutiliza para respetar el límite de 1 token por día.",
+                    tokenActual.get().getFechaActualizacion());
+            return;
+        }
+
         log.info("Renovando token GestoPago para distribuidor={}", idDistribuidor);
         try {
             GestoPagoAuthResponse response = gestoPagoAuthClient.authenticate(
@@ -51,10 +66,13 @@ public class GestoPagoTokenServiceImpl implements GestoPagoTokenService {
                 return;
             }
 
+            LocalDateTime ahoraMx = LocalDateTime.now(ZONA_MX);
             GestoPagoToken tokenEntity = tokenRepository
                     .findByIdDistribuidorAndCodigoDispositivo(idDistribuidor, codigoDispositivo)
                     .map(existing -> {
                         tokenMapper.updateEntity(response, existing);
+                        existing.setActivo(true);
+                        existing.setFechaActualizacion(ahoraMx);
                         return existing;
                     })
                     .orElseGet(() -> {
@@ -62,6 +80,7 @@ public class GestoPagoTokenServiceImpl implements GestoPagoTokenService {
                         nuevo.setIdDistribuidor(idDistribuidor);
                         nuevo.setCodigoDispositivo(codigoDispositivo);
                         nuevo.setActivo(true);
+                        nuevo.setFechaActualizacion(ahoraMx);
                         return nuevo;
                     });
 
@@ -75,6 +94,28 @@ public class GestoPagoTokenServiceImpl implements GestoPagoTokenService {
 
     @Override
     public Optional<GestoPagoToken> obtenerTokenActivo(Integer idDistribuidor, String codigoDispositivo) {
-        return tokenRepository.findByIdDistribuidorAndCodigoDispositivo(idDistribuidor, codigoDispositivo);
+        return tokenRepository.findByIdDistribuidorAndCodigoDispositivo(idDistribuidor, codigoDispositivo)
+                .filter(token -> esTokenValido(token, true));
+    }
+
+    private boolean esTokenVigente(GestoPagoToken tokenEntity) {
+        return esTokenValido(tokenEntity, false);
+    }
+
+    private boolean esTokenValido(GestoPagoToken tokenEntity, boolean permitirSinFecha) {
+        if (tokenEntity == null
+                || Boolean.FALSE.equals(tokenEntity.getActivo())
+                || tokenEntity.getToken() == null
+                || tokenEntity.getToken().isBlank()) {
+            return false;
+        }
+        LocalDateTime fechaRef = tokenEntity.getFechaActualizacion() != null
+                ? tokenEntity.getFechaActualizacion()
+                : tokenEntity.getFechaCreacion();
+        if (fechaRef == null) {
+            return permitirSinFecha;
+        }
+        long vigenciaHoras = tokenValidityHours > 0 ? tokenValidityHours : 23;
+        return fechaRef.plusHours(vigenciaHoras).isAfter(LocalDateTime.now(ZONA_MX));
     }
 }

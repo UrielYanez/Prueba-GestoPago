@@ -11,6 +11,8 @@ import com.proyecto.servicios.exception.ResourceNotFoundException;
 import com.proyecto.servicios.exception.UnauthorizedOperationException;
 import com.proyecto.servicios.model.ComprobantePagoResponseDto;
 import com.proyecto.servicios.model.ConciliarPagoRequestDto;
+import com.proyecto.servicios.model.HistorialPagosRequestDto;
+import com.proyecto.servicios.model.PaginatedResponse;
 import com.proyecto.servicios.model.ProcesarPagoRequestDto;
 import com.proyecto.servicios.model.SolicitudPinRequestDto;
 import com.proyecto.servicios.model.gestopago.GestoPagoTxPayload;
@@ -32,6 +34,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -119,14 +124,11 @@ public class PagoServiceImpl implements PagoService {
             throw new BusinessRuleException("El titular de la cuenta no tiene un correo electrónico registrado para recibir el PIN.");
         }
 
-        // Invalidar pines activos previos de esta cuenta
         confirmacionPinRepository.invalidarPinesAnteriores(cuenta.getId());
 
-        // Generar PIN aleatorio de 6 dígitos numéricos
         int pinNumero = 100_000 + secureRandom.nextInt(900_000);
         String pinTexto = String.valueOf(pinNumero);
 
-        // Guardar PIN hasheado con expiración de 5 minutos
         ConfirmacionPin nuevoPin = ConfirmacionPin.builder()
                 .cuenta(cuenta)
                 .pinHash(passwordEncoder.encode(pinTexto))
@@ -139,7 +141,6 @@ public class PagoServiceImpl implements PagoService {
         confirmacionPinRepository.save(nuevoPin);
         log.info("PIN OTP generado y almacenado de forma segura para la cuenta {}: [PROTEGIDO]", cuenta.getNumeroCuenta());
 
-        // Enviar por correo al cliente
         emailService.enviarPinTransaccion(
                 cliente.getCorreoElectronico(),
                 cliente.getNombre() + (cliente.getApellidoPaterno() != null ? " " + cliente.getApellidoPaterno() : ""),
@@ -158,9 +159,12 @@ public class PagoServiceImpl implements PagoService {
         int idProductoInt = parsearIdentificadorNumerico(request.getIdProducto());
         int idServicioInt = parsearIdentificadorNumerico(request.getIdServicio());
 
-        boolean isGiftCard = validarCatalogoYDeterminarGiftCard(request);
+        Optional<CatProductMongo> productOpt = obtenerYValidarProductoCatalogo(request);
+        boolean isGiftCard = productOpt
+                .map(p -> "10".equals(p.getIdCatTipoServicio()) || "11".equals(p.getIdCatTipoServicio()))
+                .orElse(false);
 
-        String upc = "UPC" + System.currentTimeMillis();
+        String upc = generarUpc();
         String horaLocal = LocalDateTime.now(ZONA_MX).format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
         String unidad = obtenerUnidadDistribuidor(request.getDistribuidor());
 
@@ -169,7 +173,7 @@ public class PagoServiceImpl implements PagoService {
         );
 
         TransaccionPago txReservada = ejecutarEnTransaccion(() -> reservarSaldoYRegistrarEnProceso(
-                request, upc, horaLocal, unidad
+                request, upc, horaLocal, unidad, productOpt.orElse(null)
         ));
 
         String signed = aesEncryptionUtil.encryptPayload(payload);
@@ -206,21 +210,24 @@ public class PagoServiceImpl implements PagoService {
         }
     }
 
-    private boolean validarCatalogoYDeterminarGiftCard(ProcesarPagoRequestDto request) {
+    private Optional<CatProductMongo> obtenerYValidarProductoCatalogo(ProcesarPagoRequestDto request) {
         Optional<CatProductMongo> productOpt = catProductMongoRepository.findByIdProducto(request.getIdProducto().trim());
         if (productOpt.isPresent()) {
             validarProductoYPrecioContraCatalogo(productOpt.get(), request);
         } else if (catProductMongoRepository.count() > 0) {
             throw new ResourceNotFoundException("El producto con ID '" + request.getIdProducto() + "' no existe en el catálogo autorizado de GestoPago.");
         }
-
-        return productOpt
-                .map(p -> "10".equals(p.getIdCatTipoServicio()) || "11".equals(p.getIdCatTipoServicio()))
-                .orElse(false);
+        return productOpt;
     }
 
     private String obtenerUnidadDistribuidor(String distribuidor) {
         return (distribuidor != null && !distribuidor.isBlank()) ? distribuidor.trim() : defaultUnidad;
+    }
+
+    private String generarUpc() {
+        String ts = String.valueOf(System.currentTimeMillis());
+        String sufijo = ts.length() > 12 ? ts.substring(ts.length() - 12) : ts;
+        return "UPC" + sufijo;
     }
 
     private GestoPagoTxPayload construirPayloadPago(
@@ -369,11 +376,9 @@ public class PagoServiceImpl implements PagoService {
     @Override
     @Transactional
     public ComprobantePagoResponseDto conciliarPago(ConciliarPagoRequestDto request) {
-        String upc = request.getUpc().trim();
+        TransaccionPago transaccion = buscarTransaccionParaConciliar(request);
+        String upc = transaccion.getUpc();
         log.info("Iniciando conciliación de pago con GestoPago (confirmTx.do) para UPC: {}", upc);
-
-        TransaccionPago transaccion = transaccionPagoRepository.findByUpcWithCuentaAndCliente(upc)
-                .orElseThrow(() -> new ResourceNotFoundException("No se encontró ninguna transacción registrada con el UPC: " + upc));
 
         Cuenta cuenta = transaccion.getCuenta();
         validarCuentaYClienteAutorizado(cuenta);
@@ -392,23 +397,9 @@ public class PagoServiceImpl implements PagoService {
         String random = String.valueOf(System.currentTimeMillis());
         GestoPagoToken tokenEntity = obtenerTokenGestoPago();
 
-        String xmlResponse;
-        try {
-            xmlResponse = transactionClient.confirmTx(
-                    "Bearer " + tokenEntity.getToken(),
-                    apiKey,
-                    random,
-                    signed
-            );
-            log.info("Respuesta XML de confirmTx.do para UPC {}: {}", upc, sanitizarXmlParaLog(xmlResponse));
-        } catch (Exception e) {
-            log.error("Error al consultar confirmTx.do para UPC {}: {}", upc, e.getMessage());
-            throw new ProviderTimeoutException("No fue posible obtener respuesta del servicio de conciliación confirmTx.do. Intente más tarde.", e);
-        }
-
+        String xmlResponse = invocarConfirmTx(upc, tokenEntity.getToken(), random, signed);
         GestoPagoTxResponseXml responseXml = parseResponseXml(xmlResponse);
 
-        // Código 06 o 01 en confirmTx: La transacción SÍ fue aplicada exitosamente por el proveedor
         if (responseXml.isConfirmadoExitoso()) {
             log.info("Conciliación exitosa (Código {}) para UPC {}: La operación sí fue aplicada por GestoPago.", responseXml.getCodigo(), upc);
             TransaccionPago savedTx = ejecutarEnTransaccion(() -> confirmarTransaccionExitosa(transaccion, responseXml));
@@ -416,7 +407,6 @@ public class PagoServiceImpl implements PagoService {
             return construirComprobanteDto(savedTx);
         }
 
-        // Código 70 en confirmTx: La transacción NO fue aplicada por el proveedor -> Reembolsar saldo
         if (responseXml.isNoAplicada()) {
             log.info("Conciliación completada (Código 70) para UPC {}: La operación NO fue aplicada por GestoPago. Reintegrando saldo a cuenta {}.",
                     upc, cuenta.getNumeroCuenta());
@@ -432,6 +422,80 @@ public class PagoServiceImpl implements PagoService {
 
         throw new BusinessRuleException("El proveedor aún no reporta un estado definitivo para el UPC '" + upc + "': "
                 + responseXml.getTexto() + " (Código: " + responseXml.getCodigo() + ")");
+    }
+
+    private TransaccionPago buscarTransaccionParaConciliar(ConciliarPagoRequestDto request) {
+        if (request != null && request.getUpc() != null && !request.getUpc().isBlank()) {
+            String upc = request.getUpc().trim();
+            return transaccionPagoRepository.findByUpcWithCuentaAndCliente(upc)
+                    .orElseThrow(() -> new ResourceNotFoundException("No se encontró ninguna transacción registrada con el UPC: " + upc));
+        }
+        if (request != null && request.getIdOperacionCliente() != null && !request.getIdOperacionCliente().isBlank()) {
+            String idOp = request.getIdOperacionCliente().trim();
+            return transaccionPagoRepository.findByIdOperacionClienteWithCuentaAndCliente(idOp)
+                    .orElseThrow(() -> new ResourceNotFoundException("No se encontró ninguna transacción registrada con idOperacionCliente: " + idOp));
+        }
+        throw new BusinessRuleException("Debe proporcionar el 'upc' o el 'idOperacionCliente' para conciliar la operación.");
+    }
+
+    private String invocarConfirmTx(String upc, String token, String random, String signed) {
+        try {
+            String xmlResponse = transactionClient.confirmTx("Bearer " + token, apiKey, random, signed);
+            log.info("Respuesta XML de confirmTx.do para UPC {}: {}", upc, sanitizarXmlParaLog(xmlResponse));
+            return xmlResponse;
+        } catch (Exception e) {
+            log.error("Error al consultar confirmTx.do para UPC {}: {}", upc, e.getMessage());
+            throw new ProviderTimeoutException("No fue posible obtener respuesta del servicio de conciliación confirmTx.do. Intente más tarde.", e);
+        }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PaginatedResponse<ComprobantePagoResponseDto> consultarHistorialExitoso(HistorialPagosRequestDto request) {
+        String correoCliente = resolverCorreoClienteAutenticado();
+        HistorialPagosRequestDto filtro = request != null ? request : new HistorialPagosRequestDto();
+        String numeroCuenta = (filtro.getNumeroCuenta() != null && !filtro.getNumeroCuenta().isBlank())
+                ? filtro.getNumeroCuenta().trim()
+                : null;
+
+        int page = (filtro.getPage() != null && filtro.getPage() >= 0) ? filtro.getPage() : 0;
+        int size = (filtro.getSize() != null && filtro.getSize() > 0) ? filtro.getSize() : 10;
+        Pageable pageable = PageRequest.of(page, size);
+
+        Page<TransaccionPago> pagina = transaccionPagoRepository.findHistorialPorCorreoCliente(
+                correoCliente,
+                numeroCuenta,
+                EstadoTransaccion.EXITOSA,
+                pageable
+        );
+
+        List<ComprobantePagoResponseDto> contenido = pagina.getContent().stream()
+                .map(this::construirComprobanteDto)
+                .toList();
+
+        return PaginatedResponse.<ComprobantePagoResponseDto>builder()
+                .contenido(contenido)
+                .paginaActual(pagina.getNumber())
+                .tamanoPagina(pagina.getSize())
+                .totalElementos(pagina.getTotalElements())
+                .totalPaginas(pagina.getTotalPages())
+                .esPrimera(pagina.isFirst())
+                .esUltima(pagina.isLast())
+                .build();
+    }
+
+    private String resolverCorreoClienteAutenticado() {
+        String correoAuth = obtenerCorreoAutenticado()
+                .orElseThrow(() -> new UnauthorizedOperationException("Se requiere una sesión autenticada para consultar el historial de operaciones."));
+
+        if (usuarioRepository != null) {
+            return usuarioRepository.findByCorreo(correoAuth)
+                    .map(Usuario::getCliente)
+                    .map(Cliente::getCorreoElectronico)
+                    .filter(c -> !c.isBlank())
+                    .orElse(correoAuth);
+        }
+        return correoAuth;
     }
 
     private GestoPagoTxPayload construirPayloadConciliacion(TransaccionPago transaccion) {
@@ -475,10 +539,6 @@ public class PagoServiceImpl implements PagoService {
                 .build();
     }
 
-    /**
-     * Valida en el catálogo de MongoDB que el producto esté activo, que el idServicio coincida
-     * y que el monto enviado no haya sido manipulado.
-     */
     private void validarProductoYPrecioContraCatalogo(CatProductMongo catProduct, ProcesarPagoRequestDto request) {
         if (catProduct.getStatus() != null && catProduct.getStatus() != ProductStatusEnum.ACTIVE) {
             throw new BusinessRuleException("El producto '" + catProduct.getProducto() + "' no se encuentra activo o disponible para venta.");
@@ -534,19 +594,84 @@ public class PagoServiceImpl implements PagoService {
         }
     }
 
-    /**
-     * Fase 1: Bloqueo pesimista de la cuenta, validación de identidad, idempotencia, PIN OTP y reserva del saldo.
-     */
-    private TransaccionPago reservarSaldoYRegistrarEnProceso(ProcesarPagoRequestDto request, String upc, String horaLocal, String unidad) {
+    private TransaccionPago reservarSaldoYRegistrarEnProceso(
+            ProcesarPagoRequestDto request,
+            String upc,
+            String horaLocal,
+            String unidad,
+            CatProductMongo catProduct
+    ) {
         Cuenta cuenta = obtenerCuentaConBloqueoPesimista(request.getNumeroCuenta());
-
         validarCuentaYClienteAutorizado(cuenta);
 
-        // Validar ventana de idempotencia (evitar cargos duplicados en los últimos 60 segundos)
-        String telNorm = (request.getTelefono() != null && !request.getTelefono().isBlank()) ? request.getTelefono().trim() : null;
-        String refNorm = (request.getReferencia() != null && !request.getReferencia().isBlank()) ? request.getReferencia().trim() : null;
+        String idOpCliente = normalizarTextoOpcional(request.getIdOperacionCliente());
+        validarIdOperacionClienteUnico(idOpCliente);
+
+        String telNorm = normalizarTextoOpcional(request.getTelefono());
+        String refNorm = normalizarTextoOpcional(request.getReferencia());
+        validarAusenciaDuplicadosRecientes(cuenta.getNumeroCuenta(), request, telNorm, refNorm);
+
+        if (cuenta.getSaldo().compareTo(request.getPrecio()) < 0) {
+            throw new BusinessRuleException(String.format(
+                    "Saldo insuficiente. Saldo disponible: $%.2f, Monto requerido: $%.2f",
+                    cuenta.getSaldo(), request.getPrecio()
+            ));
+        }
+
+        validarYQuemarPinOtp(request.getNumeroCuenta(), request.getPin());
+
+        cuenta.setSaldo(cuenta.getSaldo().subtract(request.getPrecio()));
+        cuentaRepository.save(cuenta);
+        log.info("Saldo reservado exitosamente en cuenta {}. Saldo tras reserva: ${}", cuenta.getNumeroCuenta(), cuenta.getSaldo());
+
+        TransaccionPago transaccion = TransaccionPago.builder()
+                .cuenta(cuenta)
+                .idServicio(request.getIdServicio().trim())
+                .idProducto(request.getIdProducto().trim())
+                .nombreProducto(catProduct != null ? catProduct.getProducto() : null)
+                .nombreServicio(catProduct != null ? catProduct.getServicio() : null)
+                .telefono(telNorm)
+                .referencia(refNorm)
+                .bandera(request.getBandera())
+                .monto(request.getPrecio())
+                .upc(upc)
+                .idOperacionCliente(idOpCliente)
+                .horaLocal(horaLocal)
+                .distribuidor(unidad)
+                .estado(EstadoTransaccion.EN_PROCESO)
+                .fechaTransaccion(LocalDateTime.now(ZONA_MX))
+                .build();
+
+        TransaccionPago guardada = transaccionPagoRepository.save(transaccion);
+        return guardada != null ? guardada : transaccion;
+    }
+
+    private String normalizarTextoOpcional(String valor) {
+        return (valor != null && !valor.isBlank()) ? valor.trim() : null;
+    }
+
+    private void validarIdOperacionClienteUnico(String idOpCliente) {
+        if (idOpCliente == null) {
+            return;
+        }
+        Optional<TransaccionPago> existente = transaccionPagoRepository.findByIdOperacionCliente(idOpCliente);
+        if (existente.isPresent()) {
+            TransaccionPago tx = existente.get();
+            throw new DuplicatedResourceException(
+                    "La operación con idOperacionCliente '" + idOpCliente + "' ya fue registrada previamente con UPC '"
+                            + tx.getUpc() + "' y estado " + tx.getEstado() + ". Consulte /pagos/conciliar para verificar su resultado."
+            );
+        }
+    }
+
+    private void validarAusenciaDuplicadosRecientes(
+            String numeroCuenta,
+            ProcesarPagoRequestDto request,
+            String telNorm,
+            String refNorm
+    ) {
         boolean duplicada = transaccionPagoRepository.existeTransaccionDuplicadaReciente(
-                cuenta.getNumeroCuenta(),
+                numeroCuenta,
                 request.getIdProducto().trim(),
                 request.getPrecio(),
                 telNorm,
@@ -561,17 +686,10 @@ public class PagoServiceImpl implements PagoService {
                             + VENTANA_IDEMPOTENCIA_SEGUNDOS + " segundos para esta cuenta y destino."
             );
         }
+    }
 
-        // Validar Saldo Suficiente
-        if (cuenta.getSaldo().compareTo(request.getPrecio()) < 0) {
-            throw new BusinessRuleException(String.format(
-                    "Saldo insuficiente. Saldo disponible: $%.2f, Monto requerido: $%.2f",
-                    cuenta.getSaldo(), request.getPrecio()
-            ));
-        }
-
-        // Validar PIN OTP
-        ConfirmacionPin pinEntity = confirmacionPinRepository.findPinActivo(request.getNumeroCuenta(), LocalDateTime.now(ZONA_MX))
+    private void validarYQuemarPinOtp(String numeroCuenta, String pinRecibido) {
+        ConfirmacionPin pinEntity = confirmacionPinRepository.findPinActivo(numeroCuenta, LocalDateTime.now(ZONA_MX))
                 .orElseThrow(() -> new BusinessRuleException("No se encontró un PIN de confirmación activo o ha expirado. Por favor solicite uno nuevo."));
 
         if (pinEntity.getIntentos() >= 3) {
@@ -580,7 +698,7 @@ public class PagoServiceImpl implements PagoService {
             throw new BusinessRuleException("El PIN ha sido bloqueado por superar el límite de 3 intentos fallidos. Solicite un nuevo código.");
         }
 
-        if (!passwordEncoder.matches(request.getPin().trim(), pinEntity.getPinHash())) {
+        if (!passwordEncoder.matches(pinRecibido.trim(), pinEntity.getPinHash())) {
             pinEntity.setIntentos(pinEntity.getIntentos() + 1);
             if (pinEntity.getIntentos() >= 3) {
                 pinEntity.setUtilizado(true);
@@ -590,38 +708,10 @@ public class PagoServiceImpl implements PagoService {
             throw new BusinessRuleException("El código PIN de seguridad es incorrecto. Intentos restantes: " + restantes);
         }
 
-        // Quemar PIN OTP inmediatamente para que no pueda reutilizarse
         pinEntity.setUtilizado(true);
         confirmacionPinRepository.save(pinEntity);
-
-        // Descontar/reservar el saldo bajo el bloqueo pesimista
-        cuenta.setSaldo(cuenta.getSaldo().subtract(request.getPrecio()));
-        cuentaRepository.save(cuenta);
-        log.info("Saldo reservado exitosamente en cuenta {}. Saldo tras reserva: ${}", cuenta.getNumeroCuenta(), cuenta.getSaldo());
-
-        // Registrar transacción en estado EN_PROCESO
-        TransaccionPago transaccion = TransaccionPago.builder()
-                .cuenta(cuenta)
-                .idServicio(request.getIdServicio().trim())
-                .idProducto(request.getIdProducto().trim())
-                .telefono(telNorm)
-                .referencia(refNorm)
-                .bandera(request.getBandera())
-                .monto(request.getPrecio())
-                .upc(upc)
-                .horaLocal(horaLocal)
-                .distribuidor(unidad)
-                .estado(EstadoTransaccion.EN_PROCESO)
-                .fechaTransaccion(LocalDateTime.now(ZONA_MX))
-                .build();
-
-        TransaccionPago guardada = transaccionPagoRepository.save(transaccion);
-        return guardada != null ? guardada : transaccion;
     }
 
-    /**
-     * Fase 3A: Consolida la transacción como EXITOSA tras recibir código 01 (o 06 en confirmTx).
-     */
     private TransaccionPago confirmarTransaccionExitosa(TransaccionPago transaccion, GestoPagoTxResponseXml responseXml) {
         TransaccionPago tx = (transaccion.getId() != null)
                 ? transaccionPagoRepository.findById(transaccion.getId()).orElse(transaccion)
@@ -637,9 +727,6 @@ public class PagoServiceImpl implements PagoService {
         return saved != null ? saved : tx;
     }
 
-    /**
-     * Fase 3B: Reintegra el saldo reservado a la cuenta y marca la transacción como RECHAZADA.
-     */
     private TransaccionPago compensarSaldoYRechazarTransaccion(
             TransaccionPago transaccion,
             String numeroCuenta,
@@ -661,9 +748,6 @@ public class PagoServiceImpl implements PagoService {
         return saved != null ? saved : transaccion;
     }
 
-    /**
-     * Fase 3C: Marca la transacción como PENDIENTE_CONCILIACION sin liberar el saldo hasta confirmar con confirmTx.do.
-     */
     private TransaccionPago marcarPendienteConciliacion(TransaccionPago transaccion, String codigo, String mensaje) {
         transaccion.setEstado(EstadoTransaccion.PENDIENTE_CONCILIACION);
         transaccion.setCodigoRespuesta(codigo);
@@ -672,9 +756,6 @@ public class PagoServiceImpl implements PagoService {
         return saved != null ? saved : transaccion;
     }
 
-    /**
-     * Obtiene la cuenta aplicando bloqueo pesimista (SELECT ... FOR UPDATE) para evitar condiciones de carrera.
-     */
     private Cuenta obtenerCuentaConBloqueoPesimista(String numeroCuenta) {
         Optional<Cuenta> cuentaLocked = cuentaRepository.findByNumeroCuentaForUpdate(numeroCuenta);
         if (cuentaLocked.isPresent()) {
@@ -684,10 +765,6 @@ public class PagoServiceImpl implements PagoService {
                 .orElseThrow(() -> new ResourceNotFoundException("Cuenta no encontrada con número: " + numeroCuenta));
     }
 
-    /**
-     * Valida que la cuenta esté activa, que el cliente titular esté activo y que el usuario autenticado
-     * en el contexto de seguridad (JWT) sea el legítimo titular de la cuenta.
-     */
     private void validarCuentaYClienteAutorizado(Cuenta cuenta) {
         if (cuenta.getEstatus() != EstatusCuenta.ACTIVA) {
             throw new BusinessRuleException("La cuenta se encuentra inactiva o bloqueada. Estatus: " + cuenta.getEstatus());
@@ -789,21 +866,17 @@ public class PagoServiceImpl implements PagoService {
     }
 
     private ComprobantePagoResponseDto construirComprobanteDto(TransaccionPago tx) {
-        String numCuenta = null;
-        BigDecimal saldo = null;
-        try {
-            if (tx.getCuenta() != null) {
-                numCuenta = tx.getCuenta().getNumeroCuenta();
-                saldo = tx.getCuenta().getSaldo();
-            }
-        } catch (Exception ex) {
-            log.warn("Cuenta en estado lazy/detached al construir comprobante, consultando BD: {}", ex.getMessage());
-            if (tx.getCuenta() != null && tx.getCuenta().getId() != null) {
-                Cuenta c = cuentaRepository.findById(tx.getCuenta().getId()).orElse(null);
-                if (c != null) {
-                    numCuenta = c.getNumeroCuenta();
-                    saldo = c.getSaldo();
-                }
+        Cuenta cuentaResuelta = resolverCuentaSegura(tx.getCuenta());
+        String numCuenta = cuentaResuelta != null ? cuentaResuelta.getNumeroCuenta() : null;
+        BigDecimal saldo = cuentaResuelta != null ? cuentaResuelta.getSaldo() : null;
+
+        String nombreProd = tx.getNombreProducto();
+        String nombreServ = tx.getNombreServicio();
+        if ((nombreProd == null || nombreServ == null) && tx.getIdProducto() != null) {
+            Optional<CatProductMongo> catOpt = catProductMongoRepository.findByIdProducto(tx.getIdProducto());
+            if (catOpt.isPresent()) {
+                nombreProd = nombreProd != null ? nombreProd : catOpt.get().getProducto();
+                nombreServ = nombreServ != null ? nombreServ : catOpt.get().getServicio();
             }
         }
 
@@ -813,9 +886,14 @@ public class PagoServiceImpl implements PagoService {
         return ComprobantePagoResponseDto.builder()
                 .transaccionId(tx.getId())
                 .numeroCuenta(numCuenta)
+                .idProducto(tx.getIdProducto())
+                .nombreProducto(nombreProd)
+                .idServicio(tx.getIdServicio())
+                .nombreServicio(nombreServ)
                 .idTxProveedor(tx.getIdTxProveedor())
                 .numAutorizacion(tx.getNumAutorizacion())
                 .upc(tx.getUpc())
+                .idOperacionCliente(tx.getIdOperacionCliente())
                 .bandera(tx.getBandera())
                 .telefono(tx.getTelefono())
                 .referencia(tx.getReferencia())
@@ -827,6 +905,23 @@ public class PagoServiceImpl implements PagoService {
                 .estadoTransaccion(tx.getEstado() != null ? tx.getEstado().name() : EstadoTransaccion.EXITOSA.name())
                 .fechaTransaccion(tx.getFechaTransaccion())
                 .build();
+    }
+
+    private Cuenta resolverCuentaSegura(Cuenta cuenta) {
+        if (cuenta == null) {
+            return null;
+        }
+        try {
+            if (cuenta.getNumeroCuenta() != null) {
+                return cuenta;
+            }
+        } catch (Exception ex) {
+            log.warn("Cuenta en estado lazy/detached al construir comprobante, consultando BD: {}", ex.getMessage());
+        }
+        if (cuenta.getId() != null) {
+            return cuentaRepository.findById(cuenta.getId()).orElse(null);
+        }
+        return null;
     }
 
     private String sanitizarCodigoRespuesta(String codigo) {
@@ -856,19 +951,17 @@ public class PagoServiceImpl implements PagoService {
     }
 
     private String mapearMensajeRechazoProveedor(String codigo, String texto) {
+        String detalle = (texto != null && !texto.isBlank()) ? texto.trim() : "Operación declinada";
         if ("-1".equals(codigo)) {
-            return "La operación fue declinada por la compañía proveedora (número telefónico o referencia no reconocida por la red del operador). El saldo retenido ha sido reembolsado íntegramente a su cuenta.";
+            return "La operación fue declinada por la compañía proveedora (" + detalle + "). El saldo retenido ha sido reembolsado íntegramente a su cuenta.";
         }
         if ("55".equals(codigo)) {
-            return "La referencia o número de servicio no fue encontrada por el proveedor o no presenta saldo pendiente. El saldo retenido ha sido reembolsado íntegramente a su cuenta.";
+            return "La transacción fue declinada por el proveedor (" + detalle + ", Código: 55). El saldo retenido ha sido reembolsado íntegramente a su cuenta.";
         }
         if ("70".equals(codigo)) {
-            return "La transacción no fue aplicada por el proveedor de servicios. El saldo retenido ha sido reembolsado íntegramente a su cuenta.";
+            return "La transacción no fue aplicada por el proveedor de servicios (Código: 70). El saldo retenido ha sido reembolsado íntegramente a su cuenta.";
         }
-        if (texto != null && !texto.trim().isEmpty()) {
-            return "La transacción fue declinada por el proveedor: " + texto.trim() + ". El saldo retenido ha sido reembolsado íntegramente a su cuenta.";
-        }
-        return "La transacción no pudo ser completada por la red del proveedor de servicios. El saldo retenido ha sido reembolsado íntegramente a su cuenta.";
+        return "La transacción fue declinada por el proveedor (" + detalle + ", Código: " + codigo + "). El saldo retenido ha sido reembolsado íntegramente a su cuenta.";
     }
 
     private <T> T ejecutarEnTransaccion(Supplier<T> action) {

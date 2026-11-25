@@ -46,6 +46,23 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(response, HttpStatus.CONFLICT);
     }
 
+    @ExceptionHandler(ActiveSessionConflictException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleActiveSessionConflictException(ActiveSessionConflictException ex) {
+        Map<String, Object> detalles = new HashMap<>();
+        detalles.put("codigoError", "SESION_ACTIVA_EXISTENTE");
+        detalles.put("sesionActivaDetectada", true);
+        detalles.put("plataformaActiva", ex.getPlataformaActiva());
+        if (ex.getFechaInicioSesion() != null) {
+            detalles.put("fechaInicioSesion", ex.getFechaInicioSesion().toString());
+        }
+        ApiResponse<Map<String, Object>> response = ApiResponse.error(
+                ex.getMessage(),
+                detalles,
+                HttpStatus.CONFLICT.value()
+        );
+        return new ResponseEntity<>(response, HttpStatus.CONFLICT);
+    }
+
     // 3. Reglas de negocio no cumplidas (ej. menor de edad, cliente inactivo)
     @ExceptionHandler(BusinessRuleException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessRuleException(BusinessRuleException ex) {

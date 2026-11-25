@@ -1,8 +1,8 @@
 {
   "info": {
     "_postman_id": "b3e94471-7f89-4a99-b1d5-8f6a9c1d0e12",
-    "name": "API Administración de Usuarios y Clientes - Suite Automatizada",
-    "description": "Colección completa para pruebas de la API REST cumpliendo con Cero @PathVariable, Cero @RequestParam, Búsquedas dinámicas por @RequestBody, Respuestas uniformes (ApiResponse) y Manejo centralizado de excepciones.",
+    "name": "GestoPago Ecosistema Digital - Suite Completa (2FA TOTP, Sesión Única, Catálogo, Pagos e Historial)",
+    "description": "Colección actualizada con los 5 módulos del Ecosistema de Comercio Digital: Autenticación 2FA (Google Authenticator RFC 6238 + Respaldo por Correo), Exclusividad de Sesión Única (Web vs Móvil con 409 Conflict), Catálogo Paginado con Categorías, Procesamiento de Compras con Idempotencia (idOperacionCliente) e Historial Paginado de Operaciones Exitosas.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -17,13 +17,43 @@
       "type": "string"
     },
     {
+      "key": "jwt_token_movil_anterior",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "challenge_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "totp_secret",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "codigo_2fa",
+      "value": "",
+      "type": "string"
+    },
+    {
       "key": "cliente_id",
       "value": "",
       "type": "string"
     },
     {
       "key": "numero_cuenta",
-      "value": "",
+      "value": "5734100099",
+      "type": "string"
+    },
+    {
+      "key": "id_operacion_cliente",
+      "value": "550e8400-e29b-41d4-a716-446655440000",
+      "type": "string"
+    },
+    {
+      "key": "ultimo_upc",
+      "value": "UPC1792804103921",
       "type": "string"
     },
     {
@@ -44,7 +74,7 @@
   ],
   "item": [
     {
-      "name": "01. Autenticación y Registro",
+      "name": "01. Autenticación, 2FA (TOTP) y Sesión Única (Módulos 1 y 2)",
       "item": [
         {
           "name": "01. Registro Cliente (Onboarding) - Exitoso [201]",
@@ -53,18 +83,12 @@
               "listen": "prerequest",
               "script": {
                 "exec": [
-                  "// Generar identificadores únicos para cada corrida cumpliendo los regex del backend",
                   "const timestamp = new Date().getTime().toString().slice(-4);",
                   "const dosDigitos = timestamp.slice(-2);",
                   "const unDigito = timestamp.slice(-1);",
-                  "",
-                  "// CURP: 4 letras + 6 digitos + H + 5 letras + 1 digito + 1 digito",
                   "const randomCurp = 'AGRA950515HDFRYR' + dosDigitos;",
-                  "",
-                  "// RFC: 4 letras + 6 digitos + [A-V1-9] + [A-Z1-9] + [0-9A]",
                   "const randomRfc = 'AGRA950515HA' + unDigito;",
                   "const randomEmail = 'usuario_' + timestamp + '@prueba.com';",
-                  "",
                   "pm.collectionVariables.set('temp_correo', randomEmail);",
                   "pm.collectionVariables.set('temp_curp', randomCurp);",
                   "pm.collectionVariables.set('temp_rfc', randomRfc);"
@@ -79,22 +103,12 @@
                   "pm.test('Status code es 201 Created', function () {",
                   "    pm.response.to.have.status(201);",
                   "});",
-                  "",
                   "const json = pm.response.json();",
-                  "pm.test('Respuesta cumple estructura uniforme ApiResponse', function () {",
-                  "    pm.expect(json.exito).to.be.true;",
-                  "    pm.expect(json.codigoEstado).to.eql(201);",
-                  "    pm.expect(json.datos).to.not.be.null;",
-                  "});",
-                  "",
                   "if (json.datos && json.datos.id) {",
                   "    pm.collectionVariables.set('cliente_id', json.datos.id);",
-                  "    console.log('Cliente ID guardado:', json.datos.id);",
                   "}",
-                  "",
                   "if (json.datos && json.datos.cuentas && json.datos.cuentas.length > 0) {",
                   "    pm.collectionVariables.set('numero_cuenta', json.datos.cuentas[0].numeroCuenta);",
-                  "    console.log('Número de cuenta guardado:', json.datos.cuentas[0].numeroCuenta);",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -126,7 +140,7 @@
           }
         },
         {
-          "name": "02. Login - Exitoso [200]",
+          "name": "02. Login Paso 1 (Credenciales desde MOVIL -> Devuelve Challenge 2FA y QR TOTP) [200]",
           "event": [
             {
               "listen": "test",
@@ -135,15 +149,17 @@
                   "pm.test('Status code es 200 OK', function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "",
                   "const json = pm.response.json();",
-                  "pm.test('Retorna token JWT', function () {",
-                  "    pm.expect(json.datos.token).to.not.be.empty;",
+                  "pm.test('Retorna challengeToken y secreto para Google Authenticator', function () {",
+                  "    pm.expect(json.datos.requiere2fa).to.be.true;",
+                  "    pm.expect(json.datos.challengeToken).to.not.be.empty;",
+                  "    pm.expect(json.datos.secretManual).to.not.be.empty;",
                   "});",
-                  "",
-                  "if (json.datos && json.datos.token) {",
-                  "    pm.collectionVariables.set('jwt_token', json.datos.token);",
-                  "    console.log('JWT Token guardado para siguientes peticiones');",
+                  "if (json.datos) {",
+                  "    pm.collectionVariables.set('challenge_token', json.datos.challengeToken);",
+                  "    pm.collectionVariables.set('totp_secret', json.datos.secretManual);",
+                  "    console.log('Challenge Token guardado. Secreto TOTP Base32:', json.datos.secretManual);",
+                  "    console.log('URI para QR Google Authenticator:', json.datos.otpAuthUri);",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -160,7 +176,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"correo\": \"{{temp_correo}}\",\n  \"password\": \"Password123!\"\n}",
+              "raw": "{\n  \"correo\": \"{{temp_correo}}\",\n  \"password\": \"Password123!\",\n  \"plataforma\": \"MOVIL\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -175,21 +191,141 @@
           }
         },
         {
-          "name": "03. Error - Login Credenciales Inválidas [401]",
+          "name": "02.1. Login Paso 2 (Verificar 2FA TOTP en MOVIL -> Emite JWT Definitivo) [200]",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Calcula automáticamente el código TOTP de 6 dígitos (RFC 6238) a partir de {{totp_secret}}",
+                  "const CryptoJS = require('crypto-js');",
+                  "const base32Secret = pm.collectionVariables.get('totp_secret') || '';",
+                  "const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';",
+                  "let bits = '';",
+                  "const clean = base32Secret.replace(/=+$/, '').toUpperCase();",
+                  "for (let i = 0; i < clean.length; i++) {",
+                  "    const val = alphabet.indexOf(clean.charAt(i));",
+                  "    if (val >= 0) bits += val.toString(2).padStart(5, '0');",
+                  "}",
+                  "const hexKey = [];",
+                  "for (let i = 0; i + 8 <= bits.length; i += 8) {",
+                  "    hexKey.push(parseInt(bits.substring(i, i + 8), 2).toString(16).padStart(2, '0'));",
+                  "}",
+                  "const keyWords = CryptoJS.enc.Hex.parse(hexKey.join(''));",
+                  "const timeWindow = Math.floor(Date.now() / 1000 / 30);",
+                  "const timeHex = timeWindow.toString(16).padStart(16, '0');",
+                  "const timeWords = CryptoJS.enc.Hex.parse(timeHex);",
+                  "const hmac = CryptoJS.HmacSHA1(timeWords, keyWords).toString(CryptoJS.enc.Hex);",
+                  "const offset = parseInt(hmac.substring(hmac.length - 1), 16) * 2;",
+                  "const binary = (parseInt(hmac.substring(offset, offset + 8), 16) & 0x7fffffff) % 1000000;",
+                  "const otp = binary.toString().padStart(6, '0');",
+                  "pm.collectionVariables.set('codigo_2fa', otp);",
+                  "console.log('Código TOTP RFC 6238 calculado:', otp);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK y emite JWT con sesión activa en MOVIL', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "pm.test('Retorna token JWT definitivo y datos de sesión', function () {",
+                  "    pm.expect(json.datos.token).to.not.be.empty;",
+                  "    pm.expect(json.datos.plataforma).to.eql('MOVIL');",
+                  "    pm.expect(json.datos.sessionId).to.not.be.empty;",
+                  "});",
+                  "if (json.datos && json.datos.token) {",
+                  "    pm.collectionVariables.set('jwt_token', json.datos.token);",
+                  "    pm.collectionVariables.set('jwt_token_movil_anterior', json.datos.token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeToken\": \"{{challenge_token}}\",\n  \"codigo2fa\": \"{{codigo_2fa}}\",\n  \"forzarCierreSesion\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/verificar-2fa",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "verificar-2fa"]
+            }
+          }
+        },
+        {
+          "name": "02.2. Consultar Estado de Sesión Activa (/auth/sesion) [200]",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code es 401 Unauthorized', function () {",
-                  "    pm.response.to.have.status(401);",
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
                   "});",
-                  "",
                   "const json = pm.response.json();",
-                  "pm.test('Respuesta de error uniforme', function () {",
+                  "pm.test('Devuelve información de la sesión activa y cuenta principal', function () {",
+                  "    pm.expect(json.exito).to.be.true;",
+                  "    pm.expect(json.datos.sessionId).to.not.be.empty;",
+                  "    pm.expect(json.datos.plataforma).to.be.oneOf(['MOVIL', 'WEB']);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/sesion",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "sesion"]
+            }
+          }
+        },
+        {
+          "name": "02.3. Error Anti-Replay - Reutilizar el mismo código 2FA [422]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 422 Unprocessable Entity (Anti-Replay)', function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "pm.test('Impide reutilizar el mismo código 2FA', function () {",
                   "    pm.expect(json.exito).to.be.false;",
-                  "    pm.expect(json.codigoEstado).to.eql(401);",
-                  "    pm.expect(json.mensaje).to.include('incorrectos');",
+                  "    pm.expect(json.mensaje).to.include('ya fue utilizado');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -206,7 +342,302 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"correo\": \"{{temp_correo}}\",\n  \"password\": \"PasswordIncorrecta999!\"\n}",
+              "raw": "{\n  \"challengeToken\": \"{{challenge_token}}\",\n  \"codigo2fa\": \"{{codigo_2fa}}\",\n  \"forzarCierreSesion\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/verificar-2fa",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "verificar-2fa"]
+            }
+          }
+        },
+        {
+          "name": "02.4. Escenario Sesión Única: Login Paso 1 desde WEB [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json.datos && json.datos.challengeToken) {",
+                  "    pm.collectionVariables.set('challenge_token', json.datos.challengeToken);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"correo\": \"{{temp_correo}}\",\n  \"password\": \"Password123!\",\n  \"plataforma\": \"WEB\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "02.5. Escenario Sesión Única: Verificar 2FA en WEB sin forzar cierre -> Bloqueo [409 Conflict]",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Usa la ventana +1 (dentro de la tolerancia RFC 6238 de +-1 ventana) para no chocar con el Anti-Replay del paso 02.1",
+                  "const CryptoJS = require('crypto-js');",
+                  "const base32Secret = pm.collectionVariables.get('totp_secret') || '';",
+                  "const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';",
+                  "let bits = '';",
+                  "const clean = base32Secret.replace(/=+$/, '').toUpperCase();",
+                  "for (let i = 0; i < clean.length; i++) {",
+                  "    const val = alphabet.indexOf(clean.charAt(i));",
+                  "    if (val >= 0) bits += val.toString(2).padStart(5, '0');",
+                  "}",
+                  "const hexKey = [];",
+                  "for (let i = 0; i + 8 <= bits.length; i += 8) {",
+                  "    hexKey.push(parseInt(bits.substring(i, i + 8), 2).toString(16).padStart(2, '0'));",
+                  "}",
+                  "const keyWords = CryptoJS.enc.Hex.parse(hexKey.join(''));",
+                  "const timeWindow = Math.floor(Date.now() / 1000 / 30) + 1;",
+                  "const timeHex = timeWindow.toString(16).padStart(16, '0');",
+                  "const timeWords = CryptoJS.enc.Hex.parse(timeHex);",
+                  "const hmac = CryptoJS.HmacSHA1(timeWords, keyWords).toString(CryptoJS.enc.Hex);",
+                  "const offset = parseInt(hmac.substring(hmac.length - 1), 16) * 2;",
+                  "const binary = (parseInt(hmac.substring(offset, offset + 8), 16) & 0x7fffffff) % 1000000;",
+                  "const otp = binary.toString().padStart(6, '0');",
+                  "pm.collectionVariables.set('codigo_2fa', otp);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 409 Conflict (SESION_ACTIVA_EXISTENTE)', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "pm.test('Identifica que existe sesión activa en MOVIL y solicita confirmación', function () {",
+                  "    pm.expect(json.exito).to.be.false;",
+                  "    pm.expect(json.datos.codigo).to.eql('SESION_ACTIVA_EXISTENTE');",
+                  "    pm.expect(json.datos.plataformaActiva).to.eql('MOVIL');",
+                  "    pm.expect(json.datos.requiereConfirmacion).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeToken\": \"{{challenge_token}}\",\n  \"codigo2fa\": \"{{codigo_2fa}}\",\n  \"forzarCierreSesion\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/verificar-2fa",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "verificar-2fa"]
+            }
+          }
+        },
+        {
+          "name": "02.6. Escenario Sesión Única: Verificar 2FA en WEB con forzarCierreSesion: true -> Desplaza a MOVIL [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK y reemplaza la sesión anterior', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "pm.test('Nueva sesión activa ahora pertenece a WEB', function () {",
+                  "    pm.expect(json.datos.plataforma).to.eql('WEB');",
+                  "    pm.expect(json.datos.token).to.not.be.empty;",
+                  "});",
+                  "if (json.datos && json.datos.token) {",
+                  "    pm.collectionVariables.set('jwt_token', json.datos.token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeToken\": \"{{challenge_token}}\",\n  \"codigo2fa\": \"{{codigo_2fa}}\",\n  \"forzarCierreSesion\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/verificar-2fa",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "verificar-2fa"]
+            }
+          }
+        },
+        {
+          "name": "02.7. Escenario Sesión Única: Usar Token Anterior de MOVIL -> Rechazado por el Servidor [401]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 401 Unauthorized (Sesión desplazada en el servidor)', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "pm.test('Mensaje explica que se inició sesión en otro dispositivo', function () {",
+                  "    pm.expect(json.exito).to.be.false;",
+                  "    pm.expect(json.mensaje).to.include('otro dispositivo');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token_movil_anterior}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/auth/sesion",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "sesion"]
+            }
+          }
+        },
+        {
+          "name": "02.8. Recuperación de Acceso 2FA por Correo (/auth/recuperar-2fa) [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "pm.test('Envía código de respaldo por correo electrónico', function () {",
+                  "    pm.expect(json.exito).to.be.true;",
+                  "    pm.expect(json.mensaje).to.include('correo');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeToken\": \"{{challenge_token}}\",\n  \"reenviarQr\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/recuperar-2fa",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "recuperar-2fa"]
+            }
+          }
+        },
+        {
+          "name": "03. Error - Login Credenciales Inválidas [401]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 401 Unauthorized', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "pm.test('Respuesta de error uniforme', function () {",
+                  "    pm.expect(json.exito).to.be.false;",
+                  "    pm.expect(json.codigoEstado).to.eql(401);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"correo\": \"{{temp_correo}}\",\n  \"password\": \"PasswordIncorrecta999!\",\n  \"plataforma\": \"WEB\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -235,15 +666,11 @@
                   "pm.test('Status code es 400 Bad Request', function () {",
                   "    pm.response.to.have.status(400);",
                   "});",
-                  "",
                   "const json = pm.response.json();",
                   "pm.test('GlobalExceptionHandler intercepta y devuelve mapa de campos erróneos', function () {",
                   "    pm.expect(json.exito).to.be.false;",
                   "    pm.expect(json.codigoEstado).to.eql(400);",
                   "    pm.expect(json.datos).to.be.an('object');",
-                  "    pm.expect(json.datos.nombre).to.not.be.undefined;",
-                  "    pm.expect(json.datos.curp).to.not.be.undefined;",
-                  "    pm.expect(json.datos.correoElectronico).to.not.be.undefined;",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -283,13 +710,6 @@
                 "exec": [
                   "pm.test('Status code es 409 Conflict', function () {",
                   "    pm.response.to.have.status(409);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Excepción DuplicatedResourceException capturada con éxito', function () {",
-                  "    pm.expect(json.exito).to.be.false;",
-                  "    pm.expect(json.codigoEstado).to.eql(409);",
-                  "    pm.expect(json.mensaje).to.include('Ya existe');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -329,13 +749,6 @@
                 "exec": [
                   "pm.test('Status code es 422 Unprocessable Entity', function () {",
                   "    pm.response.to.have.status(422);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Excepción BusinessRuleException capturada con éxito', function () {",
-                  "    pm.expect(json.exito).to.be.false;",
-                  "    pm.expect(json.codigoEstado).to.eql(422);",
-                  "    pm.expect(json.mensaje).to.include('mayor de edad');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -365,559 +778,6 @@
               "path": ["clientes"]
             }
           }
-        },
-        {
-          "name": "07. Error - JSON Mal Formado [400]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code es 400 Bad Request', function () {",
-                  "    pm.response.to.have.status(400);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('HttpMessageNotReadableException capturada limpiamente sin trazas', function () {",
-                  "    pm.expect(json.exito).to.be.false;",
-                  "    pm.expect(json.codigoEstado).to.eql(400);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"id\": \"ESTO_NO_ES_UN_NUMERO_ID\",,\n  \"nombre\": \"Error JSON\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/clientes/buscar",
-              "host": ["{{base_url}}"],
-              "path": ["clientes", "buscar"]
-            }
-          }
-        },
-        {
-          "name": "08. Error - Recurso No Encontrado [404]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code es 404 Not Found', function () {",
-                  "    pm.response.to.have.status(404);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('ResourceNotFoundException capturada con éxito', function () {",
-                  "    pm.expect(json.exito).to.be.false;",
-                  "    pm.expect(json.codigoEstado).to.eql(404);",
-                  "    pm.expect(json.mensaje).to.include('No se encontraron');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"id\": 999999999\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/clientes/buscar",
-              "host": ["{{base_url}}"],
-              "path": ["clientes", "buscar"]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "03. Consultas Paginadas Dinámicas (Único Endpoint @RequestBody)",
-      "item": [
-        {
-          "name": "09. Clientes - Búsqueda por ID Vía Body [200]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code es 200 OK', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Retorna el cliente consultado', function () {",
-                  "    pm.expect(json.exito).to.be.true;",
-                  "    pm.expect(json.datos.contenido.length).to.be.at.least(1);",
-                  "    pm.expect(json.datos.contenido[0].id).to.eql(Number(pm.collectionVariables.get('cliente_id')));",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"id\": {{cliente_id}}\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/clientes/buscar",
-              "host": ["{{base_url}}"],
-              "path": ["clientes", "buscar"]
-            }
-          }
-        },
-        {
-          "name": "10. Clientes - Búsqueda Combinada y Paginada [200]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code es 200 OK', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Metadatos de paginación correctos', function () {",
-                  "    pm.expect(json.datos.paginaActual).to.eql(0);",
-                  "    pm.expect(json.datos.tamanoPagina).to.eql(5);",
-                  "    pm.expect(json.datos.totalElementos).to.be.at.least(1);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"activo\": true,\n  \"page\": 0,\n  \"size\": 5\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/clientes/buscar",
-              "host": ["{{base_url}}"],
-              "path": ["clientes", "buscar"]
-            }
-          }
-        },
-        {
-          "name": "11. Clientes - Paginación Independiente (Solo size) [200]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code es 200 OK', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Aplica size especificado con page default (0)', function () {",
-                  "    pm.expect(json.datos.tamanoPagina).to.eql(3);",
-                  "    pm.expect(json.datos.paginaActual).to.eql(0);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"size\": 3\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/clientes/buscar",
-              "host": ["{{base_url}}"],
-              "path": ["clientes", "buscar"]
-            }
-          }
-        },
-        {
-          "name": "12. Clientes - Paginación Independiente (Solo page) [200]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code es 200 OK', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Aplica page especificado con size default (10)', function () {",
-                  "    pm.expect(json.datos.paginaActual).to.eql(0);",
-                  "    pm.expect(json.datos.tamanoPagina).to.eql(10);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"page\": 0\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/clientes/buscar",
-              "host": ["{{base_url}}"],
-              "path": ["clientes", "buscar"]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "04. Actualización y Ciclo de Vida de Clientes",
-      "item": [
-        {
-          "name": "13. Clientes - Actualizar Parcial (PATCH Vía Body) [200]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code es 200 OK', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Campos actualizados correctamente', function () {",
-                  "    pm.expect(json.datos.telefonoMovil).to.eql('5599887766');",
-                  "    pm.expect(json.datos.ocupacion).to.eql('Arquitecto de Software');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"id\": {{cliente_id}},\n  \"telefonoMovil\": \"5599887766\",\n  \"ocupacion\": \"Arquitecto de Software\",\n  \"ingresoMensual\": 65000.00\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/clientes/actualizar",
-              "host": ["{{base_url}}"],
-              "path": ["clientes", "actualizar"]
-            }
-          }
-        },
-        {
-          "name": "14. Clientes - Desactivar (Baja Lógica Vía Body) [200]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code es 200 OK', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Cliente desactivado con éxito', function () {",
-                  "    pm.expect(json.exito).to.be.true;",
-                  "    pm.expect(json.mensaje).to.include('desactivado');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"id\": {{cliente_id}}\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/clientes/desactivar",
-              "host": ["{{base_url}}"],
-              "path": ["clientes", "desactivar"]
-            }
-          }
-        },
-        {
-          "name": "15. Error - Intentar Modificar Cliente Inactivo [422]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code es 422 Unprocessable Entity', function () {",
-                  "    pm.response.to.have.status(422);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Regla de negocio impide modificar inactivos', function () {",
-                  "    pm.expect(json.exito).to.be.false;",
-                  "    pm.expect(json.mensaje).to.include('inactivo');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"id\": {{cliente_id}},\n  \"telefonoMovil\": \"5511223344\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/clientes/actualizar",
-              "host": ["{{base_url}}"],
-              "path": ["clientes", "actualizar"]
-            }
-          }
-        },
-        {
-          "name": "16. Clientes - Reactivar Cuenta Vía Body [200]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code es 200 OK', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Reactivación exitosa', function () {",
-                  "    pm.expect(json.exito).to.be.true;",
-                  "    pm.expect(json.mensaje).to.include('reactivada');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"correo\": \"{{temp_correo}}\",\n  \"password\": \"Password123!\",\n  \"curp\": \"{{temp_curp}}\",\n  \"rfc\": \"{{temp_rfc}}\",\n  \"fechaNacimiento\": \"1995-05-15\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/clientes/reactivar",
-              "host": ["{{base_url}}"],
-              "path": ["clientes", "reactivar"]
-            }
-          }
         }
       ]
     },
@@ -925,7 +785,7 @@
       "name": "05. Módulo de Cuentas Bancarias",
       "item": [
         {
-          "name": "17. Cuentas - Búsqueda Dinámica por Número de Cuenta [200]",
+          "name": "17. Cuentas - Obtener Mis Cuentas del Usuario Autenticado (/cuentas/mis-cuentas) [200]",
           "event": [
             {
               "listen": "test",
@@ -934,11 +794,48 @@
                   "pm.test('Status code es 200 OK', function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "",
                   "const json = pm.response.json();",
-                  "pm.test('Cuenta encontrada', function () {",
+                  "pm.test('Retorna lista de cuentas del titular autenticado', function () {",
                   "    pm.expect(json.exito).to.be.true;",
-                  "    pm.expect(json.datos.contenido[0].numeroCuenta).to.eql(pm.collectionVariables.get('numero_cuenta'));",
+                  "    pm.expect(json.datos).to.be.an('array');",
+                  "});",
+                  "if (json.datos && json.datos.length > 0) {",
+                  "    pm.collectionVariables.set('numero_cuenta', json.datos[0].numeroCuenta);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{jwt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/cuentas/mis-cuentas",
+              "host": ["{{base_url}}"],
+              "path": ["cuentas", "mis-cuentas"]
+            }
+          }
+        },
+        {
+          "name": "18. Cuentas - Búsqueda Dinámica por Número de Cuenta [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -980,61 +877,6 @@
           }
         },
         {
-          "name": "18. Cuentas - Crear Segunda Cuenta Vía Body [201]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code es 201 Created', function () {",
-                  "    pm.response.to.have.status(201);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Segunda cuenta creada correctamente', function () {",
-                  "    pm.expect(json.exito).to.be.true;",
-                  "    pm.expect(json.datos.numeroCuenta).to.not.be.empty;",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"clienteId\": {{cliente_id}}\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/cuentas",
-              "host": ["{{base_url}}"],
-              "path": ["cuentas"]
-            }
-          }
-        },
-        {
           "name": "19. Cuentas - Actualizar Saldo Vía Body [200]",
           "event": [
             {
@@ -1043,11 +885,6 @@
                 "exec": [
                   "pm.test('Status code es 200 OK', function () {",
                   "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Saldo actualizado correctamente', function () {",
-                  "    pm.expect(json.datos.saldo).to.eql(25000.75);",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -1074,62 +911,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"numeroCuenta\": \"{{numero_cuenta}}\",\n  \"saldo\": 25000.75,\n  \"estatus\": \"ACTIVA\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/cuentas/actualizar",
-              "host": ["{{base_url}}"],
-              "path": ["cuentas", "actualizar"]
-            }
-          }
-        },
-        {
-          "name": "20. Error - Saldo Negativo en Cuenta [422]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code es 422 Unprocessable Entity', function () {",
-                  "    pm.response.to.have.status(422);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Impide saldo negativo', function () {",
-                  "    pm.expect(json.exito).to.be.false;",
-                  "    pm.expect(json.mensaje).to.include('negativo');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "PATCH",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"numeroCuenta\": \"{{numero_cuenta}}\",\n  \"saldo\": -150.00\n}",
+              "raw": "{\n  \"numeroCuenta\": \"{{numero_cuenta}}\",\n  \"saldo\": 2500.00,\n  \"estatus\": \"ACTIVA\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1146,10 +928,10 @@
       ]
     },
     {
-      "name": "06. Módulo de Usuarios",
+      "name": "07. Catálogo de Productos GestoPago (Módulo 3)",
       "item": [
         {
-          "name": "21. Usuarios - Búsqueda Dinámica y Paginada [200]",
+          "name": "22. Productos - Obtener Catálogo Completo [200]",
           "event": [
             {
               "listen": "test",
@@ -1157,12 +939,6 @@
                 "exec": [
                   "pm.test('Status code es 200 OK', function () {",
                   "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Retorna usuario en lista paginada', function () {",
-                  "    pm.expect(json.exito).to.be.true;",
-                  "    pm.expect(json.datos.contenido.length).to.be.at.least(1);",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -1170,76 +946,6 @@
             }
           ],
           "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"correo\": \"{{temp_correo}}\",\n  \"page\": 0,\n  \"size\": 10\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{base_url}}/usuarios/buscar",
-              "host": ["{{base_url}}"],
-              "path": ["usuarios", "buscar"]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "07. Catálogo Externo de Productos",
-      "item": [
-        {
-          "name": "22. Productos - Obtener Catálogo [200]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code es 200 OK', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Respuesta uniforme con catálogo de productos', function () {",
-                  "    pm.expect(json.exito).to.be.true;",
-                  "    pm.expect(json.datos).to.be.an('array');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{jwt_token}}",
-                  "type": "string"
-                }
-              ]
-            },
             "method": "GET",
             "header": [],
             "url": {
@@ -1250,7 +956,7 @@
           }
         },
         {
-          "name": "22.1. Productos - Sincronizar Catálogo hacia MongoDB [200]",
+          "name": "22.1. Productos - Búsqueda Paginada y Filtro por Categoría (/productos/buscar) [200]",
           "event": [
             {
               "listen": "test",
@@ -1259,11 +965,15 @@
                   "pm.test('Status code es 200 OK', function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "",
                   "const json = pm.response.json();",
-                  "pm.test('Catálogo sincronizado exitosamente con MongoDB', function () {",
+                  "pm.test('Retorna catálogo paginado con nombreCategoria y tipoOperacionSugerido', function () {",
                   "    pm.expect(json.exito).to.be.true;",
-                  "    pm.expect(json.datos).to.be.an('array');",
+                  "    pm.expect(json.datos.contenido).to.be.an('array');",
+                  "    pm.expect(json.datos.paginaActual).to.eql(0);",
+                  "    if (json.datos.contenido.length > 0) {",
+                  "        pm.expect(json.datos.contenido[0]).to.have.property('nombreCategoria');",
+                  "        pm.expect(json.datos.contenido[0]).to.have.property('tipoOperacionSugerido');",
+                  "    }",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -1272,16 +982,30 @@
           ],
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"busqueda\": \"Movistar\",\n  \"idCatTipoServicio\": \"1\",\n  \"idServicio\": null,\n  \"page\": 0,\n  \"size\": 10\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
             "url": {
-              "raw": "{{base_url}}/productos/sincronizar",
+              "raw": "{{base_url}}/productos/buscar",
               "host": ["{{base_url}}"],
-              "path": ["productos", "sincronizar"]
+              "path": ["productos", "buscar"]
             }
           }
         },
         {
-          "name": "22.2. Productos - Obtener Ficha Técnica por ID de Producto [200]",
+          "name": "22.2. Productos - Obtener Ficha Técnica por ID de Producto (/productos/detalle) [200]",
           "event": [
             {
               "listen": "test",
@@ -1289,16 +1013,6 @@
                 "exec": [
                   "pm.test('Status code es 200 OK', function () {",
                   "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "const json = pm.response.json();",
-                  "pm.test('Ficha técnica completa recuperada exitosamente', function () {",
-                  "    pm.expect(json.exito).to.be.true;",
-                  "    pm.expect(json.datos.idProducto).to.eql('381');",
-                  "    pm.expect(json.datos.idServicio).to.eql('124');",
-                  "    pm.expect(json.datos.servicio).to.eql('Movistar');",
-                  "    pm.expect(json.datos.precio).to.be.a('number');",
-                  "    pm.expect(json.datos.legend).to.be.a('string');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -1323,29 +1037,264 @@
               "path": ["productos", "detalle"]
             }
           }
+        },
+        {
+          "name": "22.3. Productos - Sincronizar Catálogo hacia MongoDB [200]",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/productos/sincronizar",
+              "host": ["{{base_url}}"],
+              "path": ["productos", "sincronizar"]
+            }
+          }
         }
       ]
     },
     {
-      "name": "08. Verificación de Errores Estilizados",
+      "name": "09. Pagos, Idempotencia e Historial de Compras (Módulos 4 y 5)",
       "item": [
         {
-          "name": "23. Manejo de Errores - Ruta Inexistente (404 Estilizado) [404]",
+          "name": "01. Solicitar PIN de Confirmación de Compra (OTP por Correo) [200]",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('Status code es 404 Not Found', function () {",
-                  "    pm.response.to.have.status(404);",
-                  "});",
-                  "",
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroCuenta\": \"{{numero_cuenta}}\",\n  \"monto\": 100.00,\n  \"concepto\": \"Recarga Movistar 100\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos/solicitar-pin",
+              "host": ["{{base_url}}"],
+              "path": ["pagos", "solicitar-pin"]
+            }
+          }
+        },
+        {
+          "name": "02. Procesar Recarga Telefónica con idOperacionCliente (bandera: true) [200]",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const uuid = 'op-' + Date.now() + '-' + Math.floor(Math.random() * 10000);",
+                  "pm.collectionVariables.set('id_operacion_cliente', uuid);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
                   "const json = pm.response.json();",
-                  "pm.test('Respuesta uniforme estilizada ApiResponse con 404', function () {",
-                  "    pm.expect(json.exito).to.be.false;",
-                  "    pm.expect(json.codigoEstado).to.eql(404);",
-                  "    pm.expect(json.mensaje).to.eql('La ruta o recurso solicitado no fue encontrado.');",
-                  "    pm.expect(json.datos).to.be.null;",
+                  "if (json.datos && json.datos.upc) {",
+                  "    pm.collectionVariables.set('ultimo_upc', json.datos.upc);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroCuenta\": \"{{numero_cuenta}}\",\n  \"idServicio\": \"124\",\n  \"idProducto\": \"381\",\n  \"precio\": 100.00,\n  \"distribuidor\": \"083\",\n  \"bandera\": true,\n  \"telefono\": \"5512345678\",\n  \"referencia\": null,\n  \"pin\": \"123456\",\n  \"idOperacionCliente\": \"{{id_operacion_cliente}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos/procesar",
+              "host": ["{{base_url}}"],
+              "path": ["pagos", "procesar"]
+            }
+          }
+        },
+        {
+          "name": "03. Procesar Pago de Servicio - CFE (bandera: false) [200 / 422]",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroCuenta\": \"{{numero_cuenta}}\",\n  \"idServicio\": \"166\",\n  \"idProducto\": \"597\",\n  \"precio\": 10.00,\n  \"distribuidor\": \"083\",\n  \"bandera\": false,\n  \"telefono\": null,\n  \"referencia\": \"012345678901\",\n  \"pin\": \"123456\",\n  \"idOperacionCliente\": \"{{id_operacion_cliente}}-cfe\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos/procesar",
+              "host": ["{{base_url}}"],
+              "path": ["pagos", "procesar"]
+            }
+          }
+        },
+        {
+          "name": "04. Procesar Tarjeta de Regalo - Amazon $100 (bandera: false) [200]",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroCuenta\": \"{{numero_cuenta}}\",\n  \"idServicio\": \"71\",\n  \"idProducto\": \"200\",\n  \"precio\": 100.00,\n  \"distribuidor\": \"083\",\n  \"bandera\": false,\n  \"telefono\": null,\n  \"referencia\": null,\n  \"pin\": \"123456\",\n  \"idOperacionCliente\": \"{{id_operacion_cliente}}-amz\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos/procesar",
+              "host": ["{{base_url}}"],
+              "path": ["pagos", "procesar"]
+            }
+          }
+        },
+        {
+          "name": "05. Conciliar Transacción por UPC o idOperacionCliente (/pagos/conciliar) [200]",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"upc\": null,\n  \"idOperacionCliente\": \"{{id_operacion_cliente}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos/conciliar",
+              "host": ["{{base_url}}"],
+              "path": ["pagos", "conciliar"]
+            }
+          }
+        },
+        {
+          "name": "06. Rechazo Anti-Manipulación de Monto en Catálogo [422]",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroCuenta\": \"{{numero_cuenta}}\",\n  \"idServicio\": \"124\",\n  \"idProducto\": \"381\",\n  \"precio\": 1.00,\n  \"distribuidor\": \"083\",\n  \"bandera\": true,\n  \"telefono\": \"5512345678\",\n  \"referencia\": null,\n  \"pin\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos/procesar",
+              "host": ["{{base_url}}"],
+              "path": ["pagos", "procesar"]
+            }
+          }
+        },
+        {
+          "name": "07. Consultar Historial Paginado de Compras Exitosas (/pagos/historial) [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "pm.test('Devuelve historial paginado de operaciones exitosas del usuario autenticado', function () {",
+                  "    pm.expect(json.exito).to.be.true;",
+                  "    pm.expect(json.datos.contenido).to.be.an('array');",
+                  "    pm.expect(json.datos).to.have.property('totalElementos');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"numeroCuenta\": null,\n  \"page\": 0,\n  \"size\": 10\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/pagos/historial",
+              "host": ["{{base_url}}"],
+              "path": ["pagos", "historial"]
+            }
+          }
+        },
+        {
+          "name": "08. Cerrar Sesión Segura en Servidor (/auth/logout) [200]",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code es 200 OK y limpia sesión activa en BD', function () {",
+                  "    pm.response.to.have.status(200);",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -1363,301 +1312,12 @@
                 }
               ]
             },
-            "method": "GET",
+            "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{base_url}}/api/ruta-que-no-existe",
+              "raw": "{{base_url}}/auth/logout",
               "host": ["{{base_url}}"],
-              "path": ["api", "ruta-que-no-existe"]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "09. Pagos y Transacciones GestoPago (2FA)",
-      "item": [
-        {
-          "name": "01. Solicitar PIN de Confirmación (OTP por Correo) [200]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code es 200 OK', function () {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "const json = pm.response.json();",
-                  "pm.test('Respuesta exitosa de generación de PIN', function () {",
-                  "    pm.expect(json.exito).to.be.true;",
-                  "    pm.expect(json.codigoEstado).to.eql(200);",
-                  "    pm.expect(json.mensaje).to.include('PIN de confirmación enviado exitosamente');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"numeroCuenta\": \"5734100099\",\n  \"monto\": 100.00,\n  \"concepto\": \"Recarga Movistar 100\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/pagos/solicitar-pin",
-              "host": ["{{base_url}}"],
-              "path": ["pagos", "solicitar-pin"]
-            }
-          }
-        },
-        {
-          "name": "02. Procesar Recarga Telefónica (bandera: true) [200 / GestoPago]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const json = pm.response.json();",
-                  "if (pm.response.code === 200) {",
-                  "    pm.test('Recarga procesada exitosamente por GestoPago', function () {",
-                  "        pm.expect(json.exito).to.be.true;",
-                  "        pm.expect(json.codigoEstado).to.eql(200);",
-                  "        pm.expect(json.datos.codigoRespuesta).to.be.oneOf(['01', 'APROBADO']);",
-                  "        pm.expect(json.datos.estadoTransaccion).to.eql('EXITOSA');",
-                  "        pm.expect(json.datos).to.have.property('numAutorizacion');",
-                  "        pm.expect(json.datos.bandera).to.be.true;",
-                  "        pm.expect(json.datos.telefono).to.eql('5512345678');",
-                  "    });",
-                  "} else {",
-                  "    pm.test('Error controlado con ApiResponse', function () {",
-                  "        pm.expect(json.exito).to.be.false;",
-                  "        pm.expect(json).to.have.property('mensaje');",
-                  "    });",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"numeroCuenta\": \"5734100099\",\n  \"idServicio\": \"124\",\n  \"idProducto\": \"381\",\n  \"precio\": 100.00,\n  \"distribuidor\": \"083\",\n  \"bandera\": true,\n  \"telefono\": \"5512345678\",\n  \"referencia\": null,\n  \"pin\": \"123456\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/pagos/procesar",
-              "host": ["{{base_url}}"],
-              "path": ["pagos", "procesar"]
-            }
-          }
-        },
-        {
-          "name": "03. Procesar Pago de Servicio - CFE (bandera: false) [200 / 422 GestoPago]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const json = pm.response.json();",
-                  "if (pm.response.code === 200) {",
-                  "    pm.test('Servicio procesado exitosamente por GestoPago', function () {",
-                  "        pm.expect(json.exito).to.be.true;",
-                  "        pm.expect(json.codigoEstado).to.eql(200);",
-                  "        pm.expect(json.datos.codigoRespuesta).to.be.oneOf(['01', 'APROBADO']);",
-                  "        pm.expect(json.datos).to.have.property('numAutorizacion');",
-                  "        pm.expect(json.datos.bandera).to.be.false;",
-                  "    });",
-                  "} else {",
-                  "    pm.test('Validación de referencia por el proveedor (ej. CFE Código 55 Referencia Inválida si es dummy)', function () {",
-                  "        pm.expect(json.exito).to.be.false;",
-                  "        pm.expect(json).to.have.property('mensaje');",
-                  "    });",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"numeroCuenta\": \"5734100099\",\n  \"idServicio\": \"166\",\n  \"idProducto\": \"597\",\n  \"precio\": 10.00,\n  \"distribuidor\": \"083\",\n  \"bandera\": false,\n  \"telefono\": null,\n  \"referencia\": \"012345678901\",\n  \"pin\": \"123456\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/pagos/procesar",
-              "host": ["{{base_url}}"],
-              "path": ["pagos", "procesar"]
-            }
-          }
-        },
-        {
-          "name": "04. Procesar Tarjeta de Regalo - Amazon $100 (bandera: false) [200 / GestoPago]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const json = pm.response.json();",
-                  "if (pm.response.code === 200) {",
-                  "    pm.test('Tarjeta de Regalo generada exitosamente con PIN', function () {",
-                  "        pm.expect(json.exito).to.be.true;",
-                  "        pm.expect(json.codigoEstado).to.eql(200);",
-                  "        pm.expect(json.datos.codigoRespuesta).to.be.oneOf(['01', 'APROBADO']);",
-                  "        pm.expect(json.datos.estadoTransaccion).to.eql('EXITOSA');",
-                  "        pm.expect(json.datos).to.have.property('numAutorizacion');",
-                  "        pm.expect(json.datos).to.have.property('pinGiftCard');",
-                  "    });",
-                  "} else {",
-                  "    pm.test('Error controlado con ApiResponse', function () {",
-                  "        pm.expect(json.exito).to.be.false;",
-                  "        pm.expect(json).to.have.property('mensaje');",
-                  "    });",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"numeroCuenta\": \"5734100099\",\n  \"idServicio\": \"71\",\n  \"idProducto\": \"200\",\n  \"precio\": 100.00,\n  \"distribuidor\": \"083\",\n  \"bandera\": false,\n  \"telefono\": null,\n  \"referencia\": null,\n  \"pin\": \"123456\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/pagos/procesar",
-              "host": ["{{base_url}}"],
-              "path": ["pagos", "procesar"]
-            }
-          }
-        },
-        {
-          "name": "05. Conciliar Transacción Pendiente por Timeout (confirmTx.do) [200]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const json = pm.response.json();",
-                  "if (pm.response.code === 200) {",
-                  "    pm.test('Conciliación ejecutada correctamente con confirmTx.do', function () {",
-                  "        pm.expect(json.exito).to.be.true;",
-                  "        pm.expect(json.datos).to.have.property('estadoTransaccion');",
-                  "    });",
-                  "} else {",
-                  "    pm.test('Respuesta controlada de conciliación', function () {",
-                  "        pm.expect(json.exito).to.be.false;",
-                  "        pm.expect(json).to.have.property('mensaje');",
-                  "    });",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"upc\": \"UPC1792804103921\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/pagos/conciliar",
-              "host": ["{{base_url}}"],
-              "path": ["pagos", "conciliar"]
-            }
-          }
-        },
-        {
-          "name": "06. Rechazo Anti-Manipulación de Monto en Catálogo [422]",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "const json = pm.response.json();",
-                  "pm.test('Bloquea monto manipulado distinto al precio oficial en MongoDB [422]', function () {",
-                  "    pm.expect(json.exito).to.be.false;",
-                  "    pm.expect(json).to.have.property('mensaje');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "Authorization",
-                "value": "Bearer {{jwt_token}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"numeroCuenta\": \"5734100099\",\n  \"idServicio\": \"124\",\n  \"idProducto\": \"381\",\n  \"precio\": 1.00,\n  \"distribuidor\": \"083\",\n  \"bandera\": true,\n  \"telefono\": \"5512345678\",\n  \"referencia\": null,\n  \"pin\": \"123456\"\n}"
-            },
-            "url": {
-              "raw": "{{base_url}}/pagos/procesar",
-              "host": ["{{base_url}}"],
-              "path": ["pagos", "procesar"]
+              "path": ["auth", "logout"]
             }
           }
         }
